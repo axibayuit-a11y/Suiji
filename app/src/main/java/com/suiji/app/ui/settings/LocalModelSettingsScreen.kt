@@ -42,7 +42,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.suiji.app.R
 import com.suiji.app.model.LocalModelId
-import com.suiji.app.model.LocalModelKind
 import com.suiji.app.model.LocalModelOperation
 import com.suiji.app.model.LocalModelState
 
@@ -106,8 +105,7 @@ fun LocalModelSettingsScreen(
             items(models, key = { it.descriptor.id }) { model ->
                 LocalModelCard(
                     state = model,
-                    selected = model.descriptor.kind == LocalModelKind.SPEECH_RECOGNITION &&
-                        selectedModelId == model.descriptor.id,
+                    selected = selectedModelId == model.descriptor.id,
                     onSelect = { onSelect(model.descriptor.id) },
                     onDownload = { onDownload(model.descriptor.id) },
                     onCancelDownload = { onCancelDownload(model.descriptor.id) },
@@ -176,9 +174,7 @@ private fun LocalModelCard(
                     )
                     Text(
                         text = stringResource(
-                            if (descriptor.kind == LocalModelKind.SPEAKER_DIARIZATION) {
-                                R.string.local_model_diarization_description
-                            } else if (descriptor.id == LocalModelId.SENSEVOICE_CANTONESE) {
+                            if (descriptor.id == LocalModelId.SENSEVOICE_CANTONESE) {
                                 R.string.local_model_cantonese_description
                             } else {
                                 R.string.local_model_general_description
@@ -189,10 +185,7 @@ private fun LocalModelCard(
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (
-                    state.operation == LocalModelOperation.INSTALLED &&
-                    descriptor.kind == LocalModelKind.SPEECH_RECOGNITION
-                ) {
+                if (state.operation == LocalModelOperation.INSTALLED) {
                     RadioButton(selected = selected, onClick = onSelect)
                 }
             }

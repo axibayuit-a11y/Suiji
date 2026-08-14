@@ -3,8 +3,9 @@ package com.suiji.app.data
 import android.content.Context
 import com.suiji.app.model.ThemeMode
 import com.suiji.app.model.UiLanguage
-import com.suiji.app.model.CloudTranscriptionConfig
+import com.suiji.app.model.AiServiceConfig
 import com.suiji.app.model.LocalModelId
+import com.suiji.app.model.SpeakerDiarizationModelId
 import com.suiji.app.model.TranscriptionMode
 
 class AppPreferences(context: Context) {
@@ -29,23 +30,21 @@ class AppPreferences(context: Context) {
         preferences.edit().putString(KEY_THEME_MODE, mode.name).apply()
     }
 
-    fun readCloudTranscriptionConfig(): CloudTranscriptionConfig = CloudTranscriptionConfig(
-        enabled = preferences.getBoolean(KEY_CLOUD_ENABLED, false),
-        baseUrl = preferences.getString(KEY_CLOUD_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL,
+    fun readAiServiceConfig(): AiServiceConfig = AiServiceConfig(
+        enabled = preferences.getBoolean(KEY_AI_ENABLED, false),
+        baseUrl = preferences.getString(KEY_AI_BASE_URL, DEFAULT_BASE_URL) ?: DEFAULT_BASE_URL,
         apiKey = secureValueStore.decrypt(
-            preferences.getString(KEY_CLOUD_API_KEY, "").orEmpty()
+            preferences.getString(KEY_AI_API_KEY, "").orEmpty()
         ),
-        model = preferences.getString(KEY_CLOUD_MODEL, DEFAULT_MODEL) ?: DEFAULT_MODEL,
-        speakerDiarization = preferences.getBoolean(KEY_SPEAKER_DIARIZATION, false)
+        model = preferences.getString(KEY_AI_MODEL, "").orEmpty()
     )
 
-    fun writeCloudTranscriptionConfig(config: CloudTranscriptionConfig) {
+    fun writeAiServiceConfig(config: AiServiceConfig) {
         preferences.edit()
-            .putBoolean(KEY_CLOUD_ENABLED, config.enabled)
-            .putString(KEY_CLOUD_BASE_URL, config.baseUrl.trim())
-            .putString(KEY_CLOUD_API_KEY, secureValueStore.encrypt(config.apiKey.trim()))
-            .putString(KEY_CLOUD_MODEL, config.model.trim())
-            .putBoolean(KEY_SPEAKER_DIARIZATION, config.speakerDiarization)
+            .putBoolean(KEY_AI_ENABLED, config.enabled)
+            .putString(KEY_AI_BASE_URL, config.baseUrl.trim())
+            .putString(KEY_AI_API_KEY, secureValueStore.encrypt(config.apiKey.trim()))
+            .putString(KEY_AI_MODEL, config.model.trim())
             .apply()
     }
 
@@ -67,20 +66,36 @@ class AppPreferences(context: Context) {
         preferences.edit().putString(KEY_SELECTED_LOCAL_MODEL, id.name).apply()
     }
 
+    fun readSpeakerDiarizationEnabled(): Boolean =
+        preferences.getBoolean(KEY_SPEAKER_DIARIZATION_ENABLED, false)
+
+    fun writeSpeakerDiarizationEnabled(enabled: Boolean) {
+        preferences.edit().putBoolean(KEY_SPEAKER_DIARIZATION_ENABLED, enabled).apply()
+    }
+
+    fun readSelectedSpeakerDiarizationModel(): SpeakerDiarizationModelId = enumValueOrDefault(
+        preferences.getString(KEY_SELECTED_SPEAKER_DIARIZATION_MODEL, null),
+        SpeakerDiarizationModelId.PYANNOTE_3D_SPEAKER
+    )
+
+    fun writeSelectedSpeakerDiarizationModel(id: SpeakerDiarizationModelId) {
+        preferences.edit().putString(KEY_SELECTED_SPEAKER_DIARIZATION_MODEL, id.name).apply()
+    }
+
     private inline fun <reified T : Enum<T>> enumValueOrDefault(value: String?, fallback: T): T =
         value?.let { runCatching { enumValueOf<T>(it) }.getOrNull() } ?: fallback
 
     private companion object {
         const val KEY_UI_LANGUAGE = "ui_language"
         const val KEY_THEME_MODE = "theme_mode"
-        const val KEY_CLOUD_ENABLED = "cloud_transcription_enabled"
-        const val KEY_CLOUD_BASE_URL = "cloud_transcription_base_url"
-        const val KEY_CLOUD_API_KEY = "cloud_transcription_api_key"
-        const val KEY_CLOUD_MODEL = "cloud_transcription_model"
-        const val KEY_SPEAKER_DIARIZATION = "cloud_speaker_diarization"
+        const val KEY_AI_ENABLED = "ai_service_enabled"
+        const val KEY_AI_BASE_URL = "ai_service_base_url"
+        const val KEY_AI_API_KEY = "ai_service_api_key"
+        const val KEY_AI_MODEL = "ai_service_model"
+        const val KEY_SPEAKER_DIARIZATION_ENABLED = "speaker_diarization_enabled"
+        const val KEY_SELECTED_SPEAKER_DIARIZATION_MODEL = "selected_speaker_diarization_model"
         const val KEY_TRANSCRIPTION_MODE = "transcription_mode"
         const val KEY_SELECTED_LOCAL_MODEL = "selected_local_model"
         const val DEFAULT_BASE_URL = "https://api.openai.com/v1"
-        const val DEFAULT_MODEL = "gpt-4o-transcribe"
     }
 }

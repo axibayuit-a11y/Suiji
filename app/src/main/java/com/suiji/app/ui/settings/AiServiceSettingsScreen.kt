@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -33,22 +34,20 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.suiji.app.R
-import com.suiji.app.model.CloudTranscriptionConfig
+import com.suiji.app.model.AiServiceConfig
 
 @Composable
-fun CloudTranscriptionSettingsScreen(
-    config: CloudTranscriptionConfig,
+fun AiServiceSettingsScreen(
+    config: AiServiceConfig,
     onBack: () -> Unit,
-    onSave: (CloudTranscriptionConfig) -> Unit
+    onSave: (AiServiceConfig) -> Unit
 ) {
     var enabled by remember(config) { mutableStateOf(config.enabled) }
     var baseUrl by remember(config) { mutableStateOf(config.baseUrl) }
     var apiKey by remember(config) { mutableStateOf(config.apiKey) }
     var model by remember(config) { mutableStateOf(config.model) }
-    var speakerDiarization by remember(config) { mutableStateOf(config.speakerDiarization) }
     var validationError by remember { mutableStateOf(false) }
 
     Column(
@@ -70,7 +69,7 @@ fun CloudTranscriptionSettingsScreen(
                 )
             }
             Text(
-                text = stringResource(R.string.cloud_transcription_settings),
+                text = stringResource(R.string.ai_service_settings),
                 modifier = Modifier.padding(start = 8.dp),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold
@@ -90,11 +89,11 @@ fun CloudTranscriptionSettingsScreen(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        stringResource(R.string.enable_auto_transcription),
+                        stringResource(R.string.enable_ai_service),
                         style = MaterialTheme.typography.titleMedium
                     )
                     Text(
-                        stringResource(R.string.enable_auto_transcription_hint),
+                        stringResource(R.string.enable_ai_service_hint),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -138,43 +137,22 @@ fun CloudTranscriptionSettingsScreen(
                     validationError = false
                 },
                 modifier = Modifier.fillMaxWidth(),
-                label = { Text(stringResource(R.string.transcription_model)) },
-                placeholder = { Text("gpt-4o-transcribe") },
-                supportingText = { Text(stringResource(R.string.transcription_model_hint)) },
+                label = { Text(stringResource(R.string.ai_model)) },
+                placeholder = { Text("gpt-4.1-mini") },
+                supportingText = { Text(stringResource(R.string.ai_model_hint)) },
                 singleLine = true
             )
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        stringResource(R.string.speaker_diarization),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        stringResource(R.string.speaker_diarization_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(
-                    checked = speakerDiarization,
-                    onCheckedChange = { speakerDiarization = it }
-                )
-            }
-
             if (validationError) {
                 Text(
-                    text = stringResource(R.string.cloud_config_invalid),
+                    text = stringResource(R.string.ai_config_invalid),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
 
             Text(
-                text = stringResource(R.string.cloud_privacy_notice),
+                text = stringResource(R.string.ai_text_privacy_notice),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -190,12 +168,11 @@ fun CloudTranscriptionSettingsScreen(
                     )
                 if (valid) {
                     onSave(
-                        CloudTranscriptionConfig(
+                        AiServiceConfig(
                             enabled = enabled,
                             baseUrl = baseUrl,
                             apiKey = apiKey,
-                            model = model,
-                            speakerDiarization = speakerDiarization
+                            model = model
                         )
                     )
                 } else {

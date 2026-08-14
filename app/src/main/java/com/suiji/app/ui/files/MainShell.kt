@@ -44,9 +44,11 @@ fun MainShell(
     onRecordingClick: (RecordingItem) -> Unit,
     onUiLanguageSelected: (UiLanguage) -> Unit,
     onThemeModeSelected: (ThemeMode) -> Unit,
-    onCloudTranscriptionClick: () -> Unit,
-    onLocalModelsClick: () -> Unit,
-    onTranscriptionModeSelected: (TranscriptionMode) -> Unit
+    onAiServiceClick: () -> Unit,
+    onSpeechModelsClick: () -> Unit,
+    onSpeakerDiarizationClick: () -> Unit,
+    onTranscriptionModeSelected: (TranscriptionMode) -> Unit,
+    onSpeakerDiarizationEnabledChange: (Boolean) -> Unit
 ) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -75,9 +77,11 @@ fun MainShell(
                 contentPadding = contentPadding,
                 onUiLanguageSelected = onUiLanguageSelected,
                 onThemeModeSelected = onThemeModeSelected,
-                onCloudTranscriptionClick = onCloudTranscriptionClick,
-                onLocalModelsClick = onLocalModelsClick,
-                onTranscriptionModeSelected = onTranscriptionModeSelected
+                onAiServiceClick = onAiServiceClick,
+                onSpeechModelsClick = onSpeechModelsClick,
+                onSpeakerDiarizationClick = onSpeakerDiarizationClick,
+                onTranscriptionModeSelected = onTranscriptionModeSelected,
+                onSpeakerDiarizationEnabledChange = onSpeakerDiarizationEnabledChange
             )
         }
     }

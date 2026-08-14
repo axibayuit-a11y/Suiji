@@ -430,7 +430,6 @@ private fun formatTimelineTime(timestampMs: Long): String {
 private fun liveTranscriptionMessage(status: LiveTranscriptionStatus): String = when (status) {
     LiveTranscriptionStatus.DISABLED -> stringResource(R.string.live_disabled)
     LiveTranscriptionStatus.MODEL_REQUIRED -> stringResource(R.string.live_model_required)
-    LiveTranscriptionStatus.CLOUD_AFTER_RECORDING -> stringResource(R.string.live_cloud_after_recording)
     LiveTranscriptionStatus.INITIALIZING -> stringResource(R.string.live_initializing)
     LiveTranscriptionStatus.LISTENING -> stringResource(R.string.live_listening)
     LiveTranscriptionStatus.RECOGNIZING -> stringResource(R.string.live_recognizing)

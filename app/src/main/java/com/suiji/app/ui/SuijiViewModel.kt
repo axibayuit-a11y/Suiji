@@ -6,11 +6,12 @@ import androidx.lifecycle.viewModelScope
 import com.suiji.app.data.AppPreferences
 import com.suiji.app.data.FileRecordingRepository
 import com.suiji.app.model.FileFilter
-import com.suiji.app.model.CloudTranscriptionConfig
+import com.suiji.app.model.AiServiceConfig
 import com.suiji.app.model.LocalModelId
 import com.suiji.app.model.LocalModelOperation
-import com.suiji.app.model.LocalModelKind
 import com.suiji.app.model.LocalModelState
+import com.suiji.app.model.SpeakerDiarizationModelId
+import com.suiji.app.model.SpeakerDiarizationModelState
 import com.suiji.app.model.LiveTranscriptionStatus
 import com.suiji.app.model.MainTab
 import com.suiji.app.model.RecordingCategory
@@ -27,10 +28,11 @@ import com.suiji.app.model.TimelineEvent
 import com.suiji.app.model.TimelineEventType
 import com.suiji.app.model.UiLanguage
 import com.suiji.app.recording.RecordingService
-import com.suiji.app.transcription.OpenAiCompatibleTranscriptionEngine
 import com.suiji.app.transcription.LocalModelManager
-import com.suiji.app.transcription.LocalSpeakerDiarizationEngine
 import com.suiji.app.transcription.SenseVoiceLocalTranscriptionEngine
+import com.suiji.app.speaker.LocalSpeakerDiarizationEngine
+import com.suiji.app.speaker.SpeakerAttribution
+import com.suiji.app.speaker.SpeakerDiarizationModelManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,11 +46,12 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
     private val recordingRepository = FileRecordingRepository(application)
     private val preferences = AppPreferences(application)
     private val appContext = application.applicationContext
-    private val transcriptionEngine = OpenAiCompatibleTranscriptionEngine()
     private val localModelManager = LocalModelManager(application)
     private val localTranscriptionEngine = SenseVoiceLocalTranscriptionEngine(localModelManager)
-    private val localDiarizationEngine = LocalSpeakerDiarizationEngine(localModelManager)
+    private val speakerModelManager = SpeakerDiarizationModelManager(application)
+    private val localDiarizationEngine = LocalSpeakerDiarizationEngine(speakerModelManager)
     private val modelDownloadJobs = mutableMapOf<LocalModelId, Job>()
+    private val speakerModelDownloadJobs = mutableMapOf<SpeakerDiarizationModelId, Job>()
     private var activeRecordingId: String? = null
     private var handledCompletedRecordingId: String? = null
 
@@ -57,10 +60,13 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
             recordings = recordingRepository.loadRecordings(),
             uiLanguage = preferences.readUiLanguage(),
             themeMode = preferences.readThemeMode(),
-            cloudTranscriptionConfig = preferences.readCloudTranscriptionConfig(),
+            aiServiceConfig = preferences.readAiServiceConfig(),
             transcriptionMode = preferences.readTranscriptionMode(),
             selectedLocalModelId = preferences.readSelectedLocalModel(),
-            localModels = localModelManager.currentStates()
+            localModels = localModelManager.currentStates(),
+            speakerDiarizationEnabled = preferences.readSpeakerDiarizationEnabled(),
+            selectedSpeakerDiarizationModelId = preferences.readSelectedSpeakerDiarizationModel(),
+            speakerDiarizationModels = speakerModelManager.currentStates()
         )
     )
     val uiState: StateFlow<SuijiUiState> = _uiState.asStateFlow()
@@ -126,44 +132,47 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun openCloudTranscriptionSettings() {
-        _uiState.update { it.copy(rootScreen = RootScreen.CLOUD_TRANSCRIPTION_SETTINGS) }
+    fun openAiServiceSettings() {
+        _uiState.update { it.copy(rootScreen = RootScreen.AI_SERVICE_SETTINGS) }
     }
 
-    fun closeCloudTranscriptionSettings() {
+    fun closeAiServiceSettings() {
         _uiState.update {
             it.copy(rootScreen = RootScreen.MAIN, mainTab = MainTab.SETTINGS)
         }
     }
 
-    fun openLocalModelSettings() {
-        _uiState.update { it.copy(rootScreen = RootScreen.LOCAL_MODEL_SETTINGS) }
+    fun openSpeechModelSettings() {
+        _uiState.update { it.copy(rootScreen = RootScreen.SPEECH_MODEL_SETTINGS) }
     }
 
-    fun closeLocalModelSettings() {
+    fun closeSpeechModelSettings() {
         _uiState.update {
             it.copy(rootScreen = RootScreen.MAIN, mainTab = MainTab.SETTINGS)
         }
+    }
+
+    fun openSpeakerDiarizationSettings() {
+        _uiState.update { it.copy(rootScreen = RootScreen.SPEAKER_DIARIZATION_SETTINGS) }
+    }
+
+    fun closeSpeakerDiarizationSettings() {
+        _uiState.update { it.copy(rootScreen = RootScreen.MAIN, mainTab = MainTab.SETTINGS) }
     }
 
     fun setTranscriptionMode(mode: TranscriptionMode) {
         if (mode == TranscriptionMode.LOCAL) {
             val descriptor = localModelManager.descriptor(_uiState.value.selectedLocalModelId)
             if (!localModelManager.isInstalled(descriptor)) {
-                openLocalModelSettings()
+                openSpeechModelSettings()
                 return
             }
-        }
-        if (mode == TranscriptionMode.CLOUD && !_uiState.value.cloudTranscriptionConfig.isReady) {
-            openCloudTranscriptionSettings()
-            return
         }
         preferences.writeTranscriptionMode(mode)
         _uiState.update { it.copy(transcriptionMode = mode) }
     }
 
     fun selectLocalModel(id: LocalModelId) {
-        if (localModelManager.descriptor(id).kind != LocalModelKind.SPEECH_RECOGNITION) return
         preferences.writeSelectedLocalModel(id)
         _uiState.update { it.copy(selectedLocalModelId = id) }
     }
@@ -219,8 +228,7 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun updateLocalModelState(modelState: LocalModelState) {
-        val selectableAsr = modelState.descriptor.kind == LocalModelKind.SPEECH_RECOGNITION
-        if (modelState.operation == LocalModelOperation.INSTALLED && selectableAsr) {
+        if (modelState.operation == LocalModelOperation.INSTALLED) {
             preferences.writeSelectedLocalModel(modelState.descriptor.id)
             preferences.writeTranscriptionMode(TranscriptionMode.LOCAL)
         }
@@ -230,14 +238,14 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
                     if (it.descriptor.id == modelState.descriptor.id) modelState else it
                 },
                 selectedLocalModelId = if (
-                    modelState.operation == LocalModelOperation.INSTALLED && selectableAsr
+                    modelState.operation == LocalModelOperation.INSTALLED
                 ) {
                     modelState.descriptor.id
                 } else {
                     state.selectedLocalModelId
                 },
                 transcriptionMode = if (
-                    modelState.operation == LocalModelOperation.INSTALLED && selectableAsr
+                    modelState.operation == LocalModelOperation.INSTALLED
                 ) {
                     TranscriptionMode.LOCAL
                 } else {
@@ -247,23 +255,96 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun saveCloudTranscriptionConfig(config: CloudTranscriptionConfig) {
+    fun saveAiServiceConfig(config: AiServiceConfig) {
         val normalized = config.copy(
             baseUrl = config.baseUrl.trim().trimEnd('/'),
             apiKey = config.apiKey.trim(),
             model = config.model.trim()
         )
-        preferences.writeCloudTranscriptionConfig(normalized)
-        val nextMode = when {
-            normalized.isReady -> TranscriptionMode.CLOUD
-            _uiState.value.transcriptionMode == TranscriptionMode.CLOUD -> TranscriptionMode.OFF
-            else -> _uiState.value.transcriptionMode
-        }
-        preferences.writeTranscriptionMode(nextMode)
+        preferences.writeAiServiceConfig(normalized)
         _uiState.update {
-            it.copy(
-                cloudTranscriptionConfig = normalized,
-                transcriptionMode = nextMode
+            it.copy(aiServiceConfig = normalized)
+        }
+    }
+
+    fun setSpeakerDiarizationEnabled(enabled: Boolean) {
+        if (enabled) {
+            val state = _uiState.value
+            val descriptor = speakerModelManager.descriptor(
+                state.selectedSpeakerDiarizationModelId
+            )
+            if (!speakerModelManager.isInstalled(descriptor)) {
+                openSpeakerDiarizationSettings()
+                return
+            }
+        }
+        preferences.writeSpeakerDiarizationEnabled(enabled)
+        _uiState.update { it.copy(speakerDiarizationEnabled = enabled) }
+    }
+
+    fun selectSpeakerDiarizationModel(id: SpeakerDiarizationModelId) {
+        preferences.writeSelectedSpeakerDiarizationModel(id)
+        _uiState.update { it.copy(selectedSpeakerDiarizationModelId = id) }
+    }
+
+    fun downloadSpeakerDiarizationModel(id: SpeakerDiarizationModelId) {
+        if (speakerModelDownloadJobs[id]?.isActive == true) return
+        val descriptor = speakerModelManager.descriptor(id)
+        updateSpeakerDiarizationModelState(
+            SpeakerDiarizationModelState(
+                descriptor = descriptor,
+                operation = LocalModelOperation.DOWNLOADING,
+                downloadedBytes = _uiState.value.speakerDiarizationModels
+                    .firstOrNull { it.descriptor.id == id }
+                    ?.downloadedBytes ?: 0L
+            )
+        )
+        speakerModelDownloadJobs[id] = viewModelScope.launch {
+            runCatching {
+                speakerModelManager.downloadAndInstall(
+                    descriptor,
+                    ::updateSpeakerDiarizationModelState
+                )
+            }
+            speakerModelDownloadJobs.remove(id)
+        }
+    }
+
+    fun cancelSpeakerDiarizationModelDownload(id: SpeakerDiarizationModelId) {
+        speakerModelDownloadJobs.remove(id)?.cancel()
+        _uiState.update { it.copy(speakerDiarizationModels = speakerModelManager.currentStates()) }
+    }
+
+    fun deleteSpeakerDiarizationModel(id: SpeakerDiarizationModelId) {
+        speakerModelDownloadJobs.remove(id)?.cancel()
+        viewModelScope.launch {
+            speakerModelManager.deleteModel(id)
+            preferences.writeSpeakerDiarizationEnabled(false)
+            _uiState.update {
+                it.copy(
+                    speakerDiarizationEnabled = false,
+                    speakerDiarizationModels = speakerModelManager.currentStates()
+                )
+            }
+        }
+    }
+
+    private fun updateSpeakerDiarizationModelState(modelState: SpeakerDiarizationModelState) {
+        if (modelState.operation == LocalModelOperation.INSTALLED) {
+            preferences.writeSelectedSpeakerDiarizationModel(modelState.descriptor.id)
+        }
+        _uiState.update { state ->
+            state.copy(
+                speakerDiarizationModels = state.speakerDiarizationModels.map {
+                    if (it.descriptor.id == modelState.descriptor.id) modelState else it
+                },
+                selectedSpeakerDiarizationModelId = if (
+                    modelState.operation == LocalModelOperation.INSTALLED
+                ) {
+                    modelState.descriptor.id
+                } else {
+                    state.selectedSpeakerDiarizationModelId
+                }
             )
         }
     }
@@ -407,35 +488,9 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
     private fun startAutomaticTranscription(recording: RecordingItem) {
         val state = _uiState.value
         if (recording.id in state.transcribingIds) return
-        val transcribe: () -> Result<TranscriptionResult> = when (state.transcriptionMode) {
-            TranscriptionMode.OFF -> return
-            TranscriptionMode.CLOUD -> {
-                val config = state.cloudTranscriptionConfig
-                if (!config.isReady) return
-                { transcriptionEngine.transcribe(java.io.File(recording.audioPath), config) }
-            }
-
-            TranscriptionMode.LOCAL -> {
-                val descriptor = localModelManager.descriptor(state.selectedLocalModelId)
-                if (!localModelManager.isInstalled(descriptor)) return
-                {
-                    if (localDiarizationEngine.isInstalled()) {
-                        localDiarizationEngine.diarizeAndTranscribe(
-                            audioFile = java.io.File(recording.audioPath),
-                            asrDescriptor = descriptor,
-                            language = recording.recordingLanguage,
-                            asrEngine = localTranscriptionEngine
-                        )
-                    } else {
-                        localTranscriptionEngine.transcribeWithSegments(
-                            java.io.File(recording.audioPath),
-                            descriptor,
-                            recording.recordingLanguage
-                        )
-                    }
-                }
-            }
-        }
+        if (state.transcriptionMode == TranscriptionMode.OFF) return
+        val descriptor = localModelManager.descriptor(state.selectedLocalModelId)
+        if (!localModelManager.isInstalled(descriptor)) return
         val audioFile = java.io.File(recording.audioPath)
         if (!audioFile.isFile) return
 
@@ -452,7 +507,24 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch(Dispatchers.IO) {
-            val result = transcribe()
+            val result = localTranscriptionEngine.transcribeWithSegments(
+                audioFile,
+                descriptor,
+                recording.recordingLanguage
+            ).mapCatching { transcription ->
+                if (!state.speakerDiarizationEnabled) return@mapCatching transcription
+                val speakerDescriptor = speakerModelManager.descriptor(
+                    state.selectedSpeakerDiarizationModelId
+                )
+                if (!speakerModelManager.isInstalled(speakerDescriptor)) {
+                    return@mapCatching transcription
+                }
+                val ranges = localDiarizationEngine.diarize(
+                    audioFile,
+                    state.selectedSpeakerDiarizationModelId
+                ).getOrThrow()
+                SpeakerAttribution.apply(transcription, ranges)
+            }
             if (_uiState.value.recordings.none { it.id == recording.id }) {
                 _uiState.update { it.copy(transcribingIds = it.transcribingIds - recording.id) }
                 return@launch
@@ -509,7 +581,6 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
     private fun initialLiveTranscriptionStatus(state: SuijiUiState): LiveTranscriptionStatus =
         when (state.transcriptionMode) {
             TranscriptionMode.OFF -> LiveTranscriptionStatus.DISABLED
-            TranscriptionMode.CLOUD -> LiveTranscriptionStatus.CLOUD_AFTER_RECORDING
             TranscriptionMode.LOCAL -> {
                 val descriptor = localModelManager.descriptor(state.selectedLocalModelId)
                 if (localModelManager.isInstalled(descriptor)) {

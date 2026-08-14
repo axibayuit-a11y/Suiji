@@ -57,7 +57,7 @@ class SecureValueStore {
 
     private companion object {
         const val ANDROID_KEY_STORE = "AndroidKeyStore"
-        const val KEY_ALIAS = "suiji_cloud_credentials"
+        const val KEY_ALIAS = "suiji_ai_service_credentials"
         const val TRANSFORMATION = "AES/GCM/NoPadding"
     }
 }

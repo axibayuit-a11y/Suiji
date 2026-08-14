@@ -9,8 +9,9 @@ enum class RootScreen {
     MAIN,
     RECORDER,
     RECORDING_DETAIL,
-    CLOUD_TRANSCRIPTION_SETTINGS,
-    LOCAL_MODEL_SETTINGS
+    AI_SERVICE_SETTINGS,
+    SPEECH_MODEL_SETTINGS,
+    SPEAKER_DIARIZATION_SETTINGS
 }
 
 enum class RecordingLanguage {
@@ -33,14 +34,12 @@ enum class ThemeMode {
 
 enum class TranscriptionMode {
     OFF,
-    LOCAL,
-    CLOUD
+    LOCAL
 }
 
 enum class LiveTranscriptionStatus {
     DISABLED,
     MODEL_REQUIRED,
-    CLOUD_AFTER_RECORDING,
     INITIALIZING,
     LISTENING,
     RECOGNIZING,
@@ -49,13 +48,7 @@ enum class LiveTranscriptionStatus {
 
 enum class LocalModelId {
     SENSEVOICE_GENERAL,
-    SENSEVOICE_CANTONESE,
-    SPEAKER_DIARIZATION
-}
-
-enum class LocalModelKind {
-    SPEECH_RECOGNITION,
-    SPEAKER_DIARIZATION
+    SENSEVOICE_CANTONESE
 }
 
 enum class LocalModelOperation {
@@ -73,9 +66,7 @@ data class LocalModelDescriptor(
     val downloadUrl: String,
     val archiveBytes: Long,
     val installedBytes: Long,
-    val useInverseTextNormalization: Boolean,
-    val kind: LocalModelKind = LocalModelKind.SPEECH_RECOGNITION,
-    val secondaryDownloadUrl: String? = null
+    val useInverseTextNormalization: Boolean
 )
 
 data class LocalModelState(
@@ -83,6 +74,33 @@ data class LocalModelState(
     val operation: LocalModelOperation,
     val downloadedBytes: Long = 0L,
     val totalBytes: Long = descriptor.archiveBytes,
+    val errorMessage: String? = null
+) {
+    val progress: Float
+        get() = if (totalBytes <= 0L) 0f else {
+            (downloadedBytes.toDouble() / totalBytes.toDouble()).toFloat().coerceIn(0f, 1f)
+        }
+}
+
+enum class SpeakerDiarizationModelId {
+    PYANNOTE_3D_SPEAKER
+}
+
+data class SpeakerDiarizationModelDescriptor(
+    val id: SpeakerDiarizationModelId,
+    val displayName: String,
+    val version: String,
+    val segmentationDownloadUrl: String,
+    val embeddingDownloadUrl: String,
+    val downloadBytes: Long,
+    val installedBytes: Long
+)
+
+data class SpeakerDiarizationModelState(
+    val descriptor: SpeakerDiarizationModelDescriptor,
+    val operation: LocalModelOperation,
+    val downloadedBytes: Long = 0L,
+    val totalBytes: Long = descriptor.downloadBytes,
     val errorMessage: String? = null
 ) {
     val progress: Float
@@ -157,12 +175,11 @@ data class RecordingItem(
     val transcriptionError: String? = null
 )
 
-data class CloudTranscriptionConfig(
+data class AiServiceConfig(
     val enabled: Boolean = false,
     val baseUrl: String = "https://api.openai.com/v1",
     val apiKey: String = "",
-    val model: String = "gpt-4o-transcribe",
-    val speakerDiarization: Boolean = false
+    val model: String = ""
 ) {
     val isReady: Boolean
         get() = enabled && baseUrl.isNotBlank() && apiKey.isNotBlank() && model.isNotBlank()
@@ -195,9 +212,13 @@ data class SuijiUiState(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val recordingSession: RecordingSessionState = RecordingSessionState(),
     val selectedRecording: RecordingItem? = null,
-    val cloudTranscriptionConfig: CloudTranscriptionConfig = CloudTranscriptionConfig(),
+    val aiServiceConfig: AiServiceConfig = AiServiceConfig(),
     val transcribingIds: Set<String> = emptySet(),
     val transcriptionMode: TranscriptionMode = TranscriptionMode.OFF,
     val selectedLocalModelId: LocalModelId = LocalModelId.SENSEVOICE_GENERAL,
-    val localModels: List<LocalModelState> = emptyList()
+    val localModels: List<LocalModelState> = emptyList(),
+    val speakerDiarizationEnabled: Boolean = false,
+    val selectedSpeakerDiarizationModelId: SpeakerDiarizationModelId =
+        SpeakerDiarizationModelId.PYANNOTE_3D_SPEAKER,
+    val speakerDiarizationModels: List<SpeakerDiarizationModelState> = emptyList()
 )

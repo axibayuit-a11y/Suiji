@@ -28,8 +28,9 @@ import com.suiji.app.model.UiLanguage
 import com.suiji.app.ui.files.MainShell
 import com.suiji.app.ui.recording.RecordingScreen
 import com.suiji.app.ui.recordingdetail.RecordingDetailScreen
-import com.suiji.app.ui.settings.CloudTranscriptionSettingsScreen
+import com.suiji.app.ui.settings.AiServiceSettingsScreen
 import com.suiji.app.ui.settings.LocalModelSettingsScreen
+import com.suiji.app.ui.settings.SpeakerDiarizationSettingsScreen
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -94,9 +95,11 @@ fun SuijiApp(
                 onUiLanguageSelected(language)
             },
             onThemeModeSelected = viewModel::setThemeMode,
-            onCloudTranscriptionClick = viewModel::openCloudTranscriptionSettings,
-            onLocalModelsClick = viewModel::openLocalModelSettings,
-            onTranscriptionModeSelected = viewModel::setTranscriptionMode
+            onAiServiceClick = viewModel::openAiServiceSettings,
+            onSpeechModelsClick = viewModel::openSpeechModelSettings,
+            onSpeakerDiarizationClick = viewModel::openSpeakerDiarizationSettings,
+            onTranscriptionModeSelected = viewModel::setTranscriptionMode,
+            onSpeakerDiarizationEnabledChange = viewModel::setSpeakerDiarizationEnabled
         )
 
         RootScreen.RECORDER -> {
@@ -136,28 +139,43 @@ fun SuijiApp(
             }
         }
 
-        RootScreen.CLOUD_TRANSCRIPTION_SETTINGS -> {
-            BackHandler(onBack = viewModel::closeCloudTranscriptionSettings)
-            CloudTranscriptionSettingsScreen(
-                config = uiState.cloudTranscriptionConfig,
-                onBack = viewModel::closeCloudTranscriptionSettings,
+        RootScreen.AI_SERVICE_SETTINGS -> {
+            BackHandler(onBack = viewModel::closeAiServiceSettings)
+            AiServiceSettingsScreen(
+                config = uiState.aiServiceConfig,
+                onBack = viewModel::closeAiServiceSettings,
                 onSave = { config ->
-                    viewModel.saveCloudTranscriptionConfig(config)
-                    viewModel.closeCloudTranscriptionSettings()
+                    viewModel.saveAiServiceConfig(config)
+                    viewModel.closeAiServiceSettings()
                 }
             )
         }
 
-        RootScreen.LOCAL_MODEL_SETTINGS -> {
-            BackHandler(onBack = viewModel::closeLocalModelSettings)
+        RootScreen.SPEECH_MODEL_SETTINGS -> {
+            BackHandler(onBack = viewModel::closeSpeechModelSettings)
             LocalModelSettingsScreen(
                 models = uiState.localModels,
                 selectedModelId = uiState.selectedLocalModelId,
-                onBack = viewModel::closeLocalModelSettings,
+                onBack = viewModel::closeSpeechModelSettings,
                 onSelect = viewModel::selectLocalModel,
                 onDownload = viewModel::downloadLocalModel,
                 onCancelDownload = viewModel::cancelLocalModelDownload,
                 onDelete = viewModel::deleteLocalModel
+            )
+        }
+
+        RootScreen.SPEAKER_DIARIZATION_SETTINGS -> {
+            BackHandler(onBack = viewModel::closeSpeakerDiarizationSettings)
+            SpeakerDiarizationSettingsScreen(
+                enabled = uiState.speakerDiarizationEnabled,
+                models = uiState.speakerDiarizationModels,
+                selectedModelId = uiState.selectedSpeakerDiarizationModelId,
+                onBack = viewModel::closeSpeakerDiarizationSettings,
+                onEnabledChange = viewModel::setSpeakerDiarizationEnabled,
+                onSelect = viewModel::selectSpeakerDiarizationModel,
+                onDownload = viewModel::downloadSpeakerDiarizationModel,
+                onCancelDownload = viewModel::cancelSpeakerDiarizationModelDownload,
+                onDelete = viewModel::deleteSpeakerDiarizationModel
             )
         }
     }

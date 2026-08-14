@@ -371,7 +371,6 @@ class RecordingService : Service() {
 
     private fun initialTranscriptionStatus(): LiveTranscriptionStatus = when (transcriptionMode) {
         TranscriptionMode.OFF -> LiveTranscriptionStatus.DISABLED
-        TranscriptionMode.CLOUD -> LiveTranscriptionStatus.CLOUD_AFTER_RECORDING
         TranscriptionMode.LOCAL -> {
             val descriptor = modelManager.descriptor(selectedModelId)
             if (modelManager.isInstalled(descriptor)) LiveTranscriptionStatus.INITIALIZING

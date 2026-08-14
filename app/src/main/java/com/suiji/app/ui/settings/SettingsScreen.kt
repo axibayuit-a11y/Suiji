@@ -19,11 +19,13 @@ import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Memory
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Storage
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -44,9 +46,11 @@ fun SettingsScreen(
     contentPadding: PaddingValues,
     onUiLanguageSelected: (UiLanguage) -> Unit,
     onThemeModeSelected: (ThemeMode) -> Unit,
-    onCloudTranscriptionClick: () -> Unit,
-    onLocalModelsClick: () -> Unit,
-    onTranscriptionModeSelected: (TranscriptionMode) -> Unit
+    onAiServiceClick: () -> Unit,
+    onSpeechModelsClick: () -> Unit,
+    onSpeakerDiarizationClick: () -> Unit,
+    onTranscriptionModeSelected: (TranscriptionMode) -> Unit,
+    onSpeakerDiarizationEnabledChange: (Boolean) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -112,11 +116,6 @@ fun SettingsScreen(
             ) { onTranscriptionModeSelected(TranscriptionMode.LOCAL) }
         }
         item {
-            SelectionRow(Icons.Outlined.CloudQueue, R.string.transcription_cloud,
-                uiState.transcriptionMode == TranscriptionMode.CLOUD
-            ) { onTranscriptionModeSelected(TranscriptionMode.CLOUD) }
-        }
-        item {
             val selectedModel = uiState.localModels.firstOrNull {
                 it.descriptor.id == uiState.selectedLocalModelId
             }
@@ -128,21 +127,49 @@ fun SettingsScreen(
                 } else {
                     stringResource(R.string.not_downloaded)
                 },
-                onClick = onLocalModelsClick
+                onClick = onSpeechModelsClick
+            )
+        }
+
+        item { SectionTitle(R.string.speaker_diarization_section) }
+        item {
+            SwitchRow(
+                icon = Icons.Outlined.Groups,
+                title = R.string.enable_speaker_diarization,
+                description = stringResource(R.string.enable_speaker_diarization_hint),
+                checked = uiState.speakerDiarizationEnabled,
+                onCheckedChange = onSpeakerDiarizationEnabledChange
             )
         }
         item {
+            val selectedSpeakerModel = uiState.speakerDiarizationModels.firstOrNull {
+                it.descriptor.id == uiState.selectedSpeakerDiarizationModelId
+            }
+            InformationRow(
+                Icons.Outlined.Groups,
+                R.string.speaker_diarization_model,
+                if (selectedSpeakerModel?.operation == LocalModelOperation.INSTALLED) {
+                    selectedSpeakerModel.descriptor.displayName
+                } else {
+                    stringResource(R.string.not_downloaded)
+                },
+                onClick = onSpeakerDiarizationClick
+            )
+        }
+
+        item { SectionTitle(R.string.ai_features) }
+        item {
             InformationRow(
                 Icons.Outlined.CloudQueue,
-                R.string.cloud_service,
+                R.string.ai_service,
                 stringResource(
-                    if (uiState.cloudTranscriptionConfig.isReady) {
-                        R.string.cloud_enabled
+                    if (uiState.aiServiceConfig.isReady) {
+                        R.string.ai_service_configured
                     } else {
                         R.string.not_configured
                     }
                 ),
-                onClick = onCloudTranscriptionClick
+                onClick = onAiServiceClick
             )
         }
 
@@ -166,6 +193,39 @@ fun SettingsScreen(
             )
         }
     }
+}
+
+@Composable
+private fun SwitchRow(
+    icon: ImageVector,
+    @StringRes title: Int,
+    description: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onCheckedChange(!checked) }
+            .padding(vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
+        Column(
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 16.dp, end = 12.dp)
+        ) {
+            Text(text = stringResource(title), style = MaterialTheme.typography.bodyLarge)
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 }
 
 @Composable
