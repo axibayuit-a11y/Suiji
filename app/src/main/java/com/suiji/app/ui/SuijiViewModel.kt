@@ -47,7 +47,7 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = AppPreferences(application)
     private val appContext = application.applicationContext
     private val localModelManager = LocalModelManager(application)
-    private val localTranscriptionEngine = SenseVoiceLocalTranscriptionEngine(localModelManager)
+    private val localTranscriptionEngine = SenseVoiceLocalTranscriptionEngine(localModelManager, application)
     private val speakerModelManager = SpeakerDiarizationModelManager(application)
     private val localDiarizationEngine = LocalSpeakerDiarizationEngine(speakerModelManager)
     private val modelDownloadJobs = mutableMapOf<LocalModelId, Job>()
@@ -102,7 +102,11 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
                                 selectedRecording = null
                             )
                         }
-                        completed?.let(::startAutomaticTranscription)
+                        completed
+                            ?.takeIf { recording ->
+                                recording.timeline.none { it.type == TimelineEventType.SPEECH }
+                            }
+                            ?.let(::startAutomaticTranscription)
                     }
                 }
             }
@@ -456,7 +460,9 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
             recordingId = recordingId,
             language = state.recordingSession.language,
             transcriptionMode = state.transcriptionMode,
-            modelId = state.selectedLocalModelId
+            modelId = state.selectedLocalModelId,
+            speakerDiarizationEnabled = state.speakerDiarizationEnabled,
+            speakerModelId = state.selectedSpeakerDiarizationModelId
         )
         return true
     }

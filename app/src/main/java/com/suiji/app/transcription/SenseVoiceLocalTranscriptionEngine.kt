@@ -1,5 +1,6 @@
 package com.suiji.app.transcription
 
+import android.content.Context
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
@@ -12,8 +13,11 @@ import java.io.File
 
 class SenseVoiceLocalTranscriptionEngine(
     private val modelManager: LocalModelManager,
+    context: Context,
     private val audioDecoder: AndroidAudioChunkDecoder = AndroidAudioChunkDecoder()
 ) {
+    private val speechSegmenter = NaturalSpeechSegmenter(context)
+
     fun transcribe(
         audioFile: File,
         descriptor: LocalModelDescriptor,
@@ -28,28 +32,27 @@ class SenseVoiceLocalTranscriptionEngine(
         val recognizer = createRecognizer(descriptor, language)
         try {
             val segments = mutableListOf<TranscriptSegment>()
-            var offsetMs = 0L
-            audioDecoder.decode(audioFile, chunkSeconds = TIMELINE_CHUNK_SECONDS) { samples, sampleRate ->
-                val durationMs = samples.size * 1000L / sampleRate
-                if (samples.isNotEmpty() && calculateRms(samples) >= SPEECH_RMS_THRESHOLD) {
-                    val stream = recognizer.createStream()
-                    try {
-                        stream.acceptWaveform(samples, sampleRate)
-                        recognizer.decode(stream)
-                        recognizer.getResult(stream).text.trim()
-                            .takeIf { text -> text.any(Char::isLetterOrDigit) }
-                            ?.let { text ->
-                                segments += TranscriptSegment(
-                                    startMs = offsetMs,
-                                    endMs = offsetMs + durationMs,
-                                    text = text
-                                )
-                            }
-                    } finally {
-                        stream.release()
+            val vadSession = speechSegmenter.openSession()
+
+            fun recognize(naturalSegment: NaturalSpeechSegment) {
+                transcribeSamples(recognizer, naturalSegment.samples)
+                    .takeIf(String::isNotBlank)
+                    ?.let { text ->
+                        segments += TranscriptSegment(
+                            startMs = naturalSegment.startMs,
+                            endMs = naturalSegment.endMs,
+                            text = text
+                        )
                     }
+            }
+
+            try {
+                audioDecoder.decode(audioFile, chunkSeconds = DECODER_BUFFER_SECONDS) { samples, _ ->
+                    vadSession.accept(samples).forEach(::recognize)
                 }
-                offsetMs += durationMs
+                vadSession.flush().forEach(::recognize)
+            } finally {
+                vadSession.close()
             }
             val text = segments.joinToString(separator = "\n", transform = TranscriptSegment::text)
             require(text.isNotBlank()) { "The local model did not recognize speech" }
@@ -106,15 +109,7 @@ class SenseVoiceLocalTranscriptionEngine(
         RecordingLanguage.CANTONESE_HK -> "yue"
     }
 
-    private fun calculateRms(samples: FloatArray): Float {
-        if (samples.isEmpty()) return 0f
-        var sumSquares = 0.0
-        for (sample in samples) sumSquares += sample * sample
-        return kotlin.math.sqrt(sumSquares / samples.size).toFloat()
-    }
-
     private companion object {
-        const val TIMELINE_CHUNK_SECONDS = 8
-        const val SPEECH_RMS_THRESHOLD = 0.0025f
+        const val DECODER_BUFFER_SECONDS = 30
     }
 }
