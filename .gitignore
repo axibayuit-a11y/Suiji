@@ -13,6 +13,8 @@ captures/
 *.apk
 /screenshots/
 /deploy.py
+__pycache__/
+*.py[cod]
 .env
 .env.*
 keystore.properties
