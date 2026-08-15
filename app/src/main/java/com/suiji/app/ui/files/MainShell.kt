@@ -48,7 +48,8 @@ fun MainShell(
     onSpeechModelsClick: () -> Unit,
     onSpeakerDiarizationClick: () -> Unit,
     onTranscriptionModeSelected: (TranscriptionMode) -> Unit,
-    onSpeakerDiarizationEnabledChange: (Boolean) -> Unit
+    onSpeakerDiarizationEnabledChange: (Boolean) -> Unit,
+    onCheckForUpdates: () -> Unit
 ) {
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -81,7 +82,8 @@ fun MainShell(
                 onSpeechModelsClick = onSpeechModelsClick,
                 onSpeakerDiarizationClick = onSpeakerDiarizationClick,
                 onTranscriptionModeSelected = onTranscriptionModeSelected,
-                onSpeakerDiarizationEnabledChange = onSpeakerDiarizationEnabledChange
+                onSpeakerDiarizationEnabledChange = onSpeakerDiarizationEnabledChange,
+                onCheckForUpdates = onCheckForUpdates
             )
         }
     }

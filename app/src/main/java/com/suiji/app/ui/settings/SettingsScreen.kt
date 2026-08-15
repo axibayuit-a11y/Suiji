@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.Language
 import androidx.compose.material.icons.outlined.Memory
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material.icons.outlined.SystemUpdateAlt
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +35,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.suiji.app.R
+import com.suiji.app.BuildConfig
+import com.suiji.app.model.AppUpdateStatus
 import com.suiji.app.model.SuijiUiState
 import com.suiji.app.model.ThemeMode
 import com.suiji.app.model.UiLanguage
@@ -50,7 +53,8 @@ fun SettingsScreen(
     onSpeechModelsClick: () -> Unit,
     onSpeakerDiarizationClick: () -> Unit,
     onTranscriptionModeSelected: (TranscriptionMode) -> Unit,
-    onSpeakerDiarizationEnabledChange: (Boolean) -> Unit
+    onSpeakerDiarizationEnabledChange: (Boolean) -> Unit,
+    onCheckForUpdates: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
@@ -188,8 +192,27 @@ fun SettingsScreen(
             InformationRow(
                 Icons.Outlined.Info,
                 R.string.about,
-                stringResource(R.string.version_label),
+                stringResource(R.string.version_label, BuildConfig.VERSION_NAME),
                 showChevron = false
+            )
+        }
+        item {
+            val isBusy = uiState.appUpdate.status == AppUpdateStatus.CHECKING ||
+                uiState.appUpdate.status == AppUpdateStatus.DOWNLOADING
+            val updateDescription = when (uiState.appUpdate.status) {
+                AppUpdateStatus.CHECKING -> stringResource(R.string.checking_for_updates)
+                AppUpdateStatus.DOWNLOADING -> stringResource(
+                    R.string.downloading_update_percent,
+                    (uiState.appUpdate.progress * 100).toInt()
+                )
+                else -> stringResource(R.string.check_updates_description)
+            }
+            InformationRow(
+                Icons.Outlined.SystemUpdateAlt,
+                R.string.check_for_updates,
+                updateDescription,
+                showChevron = !isBusy,
+                onClick = if (isBusy) null else onCheckForUpdates
             )
         }
     }

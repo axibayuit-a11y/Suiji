@@ -200,6 +200,40 @@ data class RecordingSessionState(
     val photoCount: Int get() = photoPaths.size
 }
 
+enum class AppUpdateStatus {
+    IDLE,
+    CHECKING,
+    UP_TO_DATE,
+    AVAILABLE,
+    DOWNLOADING,
+    READY_TO_INSTALL,
+    ERROR
+}
+
+data class AppUpdateInfo(
+    val versionName: String,
+    val releaseNotes: String,
+    val releaseUrl: String,
+    val assetName: String,
+    val downloadUrl: String,
+    val assetBytes: Long,
+    val sha256Digest: String? = null
+)
+
+data class AppUpdateState(
+    val status: AppUpdateStatus = AppUpdateStatus.IDLE,
+    val info: AppUpdateInfo? = null,
+    val downloadedBytes: Long = 0L,
+    val totalBytes: Long = 0L,
+    val downloadedApkPath: String? = null,
+    val errorMessage: String? = null
+) {
+    val progress: Float
+        get() = if (totalBytes <= 0L) 0f else {
+            (downloadedBytes.toDouble() / totalBytes.toDouble()).toFloat().coerceIn(0f, 1f)
+        }
+}
+
 data class SuijiUiState(
     val rootScreen: RootScreen = RootScreen.MAIN,
     val mainTab: MainTab = MainTab.FILES,
@@ -220,5 +254,6 @@ data class SuijiUiState(
     val speakerDiarizationEnabled: Boolean = false,
     val selectedSpeakerDiarizationModelId: SpeakerDiarizationModelId =
         SpeakerDiarizationModelId.PYANNOTE_3D_SPEAKER,
-    val speakerDiarizationModels: List<SpeakerDiarizationModelState> = emptyList()
+    val speakerDiarizationModels: List<SpeakerDiarizationModelState> = emptyList(),
+    val appUpdate: AppUpdateState = AppUpdateState()
 )

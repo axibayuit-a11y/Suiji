@@ -1,6 +1,6 @@
 # 随记 Android
 
-“随记”的第一阶段 Android 框架，使用 Kotlin、Jetpack Compose 和 Material 3 构建。当前 0.7.0 版本已经打通文件首页、后台录音、录音中拍照、本地转录、统一时间线、保存归档、设置、多语言和黑白主题的核心流程。
+“随记”的第一阶段 Android 框架，使用 Kotlin、Jetpack Compose 和 Material 3 构建。当前 0.8.0 版本已经打通文件首页、后台录音、录音中拍照、本地转录、统一时间线、保存归档、设置、多语言和黑白主题的核心流程。
 
 ## 当前功能
 
@@ -30,6 +30,7 @@
 - API 密钥通过 Android Keystore 的 AES-GCM 加密后保存在设备本地。
 - 界面支持简体中文、English、繁體中文。
 - 支持跟随系统、浅色和深色三种外观；配色严格使用黑白灰。
+- 设置页可检查 GitHub Release：自动选择 ARM64 或通用 APK，校验版本、包名、签名与 SHA-256 后交由 Android 系统安装器更新。
 
 ## 架构
 
@@ -56,7 +57,8 @@ SuijiViewModel（UI 状态、归档与转录调度）
 ├── speaker/SpeakerDiarizationModelManager（独立模型目录与下载）
 ├── speaker/LocalSpeakerDiarizationEngine（只输出谁在何时说话）
 ├── speaker/LiveSpeakerAttributor（自然语音段关闭时立即声纹聚类）
-└── speaker/SpeakerAttribution（组合转录时间段与说话人结果）
+├── speaker/SpeakerAttribution（组合转录时间段与说话人结果）
+└── update/AppUpdateManager（Release 检查、APK 下载校验与系统安装）
 ```
 
 录音和照片保存在 Android 应用专属目录，不需要申请公共存储权限；卸载应用时这些数据会被系统清理。麦克风和相机权限只在用户触发对应功能时请求。
@@ -86,3 +88,7 @@ emulator.exe -avd Suiji_Pixel_7_API_36 -allow-host-audio -camera-back webcam0 -c
 ## 下一阶段
 
 本地转录和独立说话人分离主链路已经接通。下一阶段是让用户基于转录文字主动生成 AI 总结、继续 AI 对话，并增强说话人识别、真机兼容性和性能测试。
+
+## 开源许可
+
+本项目使用 [Apache License 2.0](LICENSE) 开源。

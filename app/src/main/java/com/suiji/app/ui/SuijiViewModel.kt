@@ -1,12 +1,15 @@
 package com.suiji.app.ui
 
 import android.app.Application
+import android.content.Intent
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.suiji.app.data.AppPreferences
 import com.suiji.app.data.FileRecordingRepository
 import com.suiji.app.model.FileFilter
 import com.suiji.app.model.AiServiceConfig
+import com.suiji.app.model.AppUpdateState
+import com.suiji.app.model.AppUpdateStatus
 import com.suiji.app.model.LocalModelId
 import com.suiji.app.model.LocalModelOperation
 import com.suiji.app.model.LocalModelState
@@ -33,6 +36,7 @@ import com.suiji.app.transcription.SenseVoiceLocalTranscriptionEngine
 import com.suiji.app.speaker.LocalSpeakerDiarizationEngine
 import com.suiji.app.speaker.SpeakerAttribution
 import com.suiji.app.speaker.SpeakerDiarizationModelManager
+import com.suiji.app.update.AppUpdateManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -50,8 +54,10 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
     private val localTranscriptionEngine = SenseVoiceLocalTranscriptionEngine(localModelManager, application)
     private val speakerModelManager = SpeakerDiarizationModelManager(application)
     private val localDiarizationEngine = LocalSpeakerDiarizationEngine(speakerModelManager)
+    private val appUpdateManager = AppUpdateManager(application)
     private val modelDownloadJobs = mutableMapOf<LocalModelId, Job>()
     private val speakerModelDownloadJobs = mutableMapOf<SpeakerDiarizationModelId, Job>()
+    private var appUpdateJob: Job? = null
     private var activeRecordingId: String? = null
     private var handledCompletedRecordingId: String? = null
 
@@ -115,6 +121,118 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectMainTab(tab: MainTab) {
         _uiState.update { it.copy(mainTab = tab) }
+    }
+
+    fun checkForUpdates() {
+        if (appUpdateJob?.isActive == true) return
+        _uiState.update {
+            it.copy(appUpdate = AppUpdateState(status = AppUpdateStatus.CHECKING))
+        }
+        appUpdateJob = viewModelScope.launch(Dispatchers.IO) {
+            val result = appUpdateManager.checkForUpdate()
+            _uiState.update { state ->
+                result.fold(
+                    onSuccess = { info ->
+                        state.copy(
+                            appUpdate = if (info == null) {
+                                AppUpdateState(status = AppUpdateStatus.UP_TO_DATE)
+                            } else {
+                                AppUpdateState(
+                                    status = AppUpdateStatus.AVAILABLE,
+                                    info = info,
+                                    totalBytes = info.assetBytes
+                                )
+                            }
+                        )
+                    },
+                    onFailure = { error ->
+                        state.copy(
+                            appUpdate = AppUpdateState(
+                                status = AppUpdateStatus.ERROR,
+                                errorMessage = error.message
+                            )
+                        )
+                    }
+                )
+            }
+            appUpdateJob = null
+        }
+    }
+
+    fun downloadUpdate() {
+        if (appUpdateJob?.isActive == true) return
+        val info = _uiState.value.appUpdate.info ?: return
+        _uiState.update {
+            it.copy(
+                appUpdate = it.appUpdate.copy(
+                    status = AppUpdateStatus.DOWNLOADING,
+                    downloadedBytes = 0L,
+                    errorMessage = null
+                )
+            )
+        }
+        appUpdateJob = viewModelScope.launch(Dispatchers.IO) {
+            val result = appUpdateManager.downloadUpdate(info) { downloaded, total ->
+                _uiState.update {
+                    it.copy(
+                        appUpdate = it.appUpdate.copy(
+                            downloadedBytes = downloaded,
+                            totalBytes = total
+                        )
+                    )
+                }
+            }
+            _uiState.update { state ->
+                result.fold(
+                    onSuccess = { apk ->
+                        state.copy(
+                            appUpdate = state.appUpdate.copy(
+                                status = AppUpdateStatus.READY_TO_INSTALL,
+                                downloadedApkPath = apk.absolutePath,
+                                downloadedBytes = apk.length(),
+                                totalBytes = apk.length()
+                            )
+                        )
+                    },
+                    onFailure = { error ->
+                        state.copy(
+                            appUpdate = state.appUpdate.copy(
+                                status = AppUpdateStatus.ERROR,
+                                errorMessage = error.message
+                            )
+                        )
+                    }
+                )
+            }
+            appUpdateJob = null
+        }
+    }
+
+    fun canRequestPackageInstalls(): Boolean = appUpdateManager.canRequestPackageInstalls()
+
+    fun unknownSourcesIntent(): Intent = appUpdateManager.unknownSourcesIntent()
+
+    fun installDownloadedUpdate() {
+        val path = _uiState.value.appUpdate.downloadedApkPath ?: return
+        runCatching {
+            appContext.startActivity(appUpdateManager.installIntent(java.io.File(path)))
+        }.onSuccess {
+            dismissUpdateDialog()
+        }.onFailure { error ->
+            _uiState.update {
+                it.copy(
+                    appUpdate = it.appUpdate.copy(
+                        status = AppUpdateStatus.ERROR,
+                        errorMessage = error.message
+                    )
+                )
+            }
+        }
+    }
+
+    fun dismissUpdateDialog() {
+        if (_uiState.value.appUpdate.status == AppUpdateStatus.DOWNLOADING) return
+        _uiState.update { it.copy(appUpdate = AppUpdateState()) }
     }
 
     fun openRecording(recording: RecordingItem) {

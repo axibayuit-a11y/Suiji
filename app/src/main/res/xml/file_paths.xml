@@ -3,4 +3,7 @@
     <files-path
         name="recording_photos"
         path="recording_photos/" />
+    <cache-path
+        name="app_updates"
+        path="app_updates/" />
 </paths>
