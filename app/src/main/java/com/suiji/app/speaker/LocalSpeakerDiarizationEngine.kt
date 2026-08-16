@@ -67,19 +67,26 @@ class LocalSpeakerDiarizationEngine(
                     numThreads = Runtime.getRuntime().availableProcessors().coerceIn(1, 4),
                     debug = false
                 ),
-                clustering = FastClusteringConfig(numClusters = -1, threshold = 0.5f),
+                // sherpa-onnx uses a distance threshold: a smaller value creates
+                // more clusters. Its official unknown-speaker-count example uses
+                // 0.90. The previous 0.50 default severely over-split short phone
+                // recordings when playback/channel conditions changed.
+                clustering = FastClusteringConfig(
+                    numClusters = -1,
+                    threshold = CLUSTERING_THRESHOLD
+                ),
                 minDurationOn = 0.2f,
                 minDurationOff = 0.5f
             )
         )
         try {
-            mergeAdjacent(diarizer.process(samples).map {
+            SpeakerLabelNormalizer.byFirstAppearance(mergeAdjacent(diarizer.process(samples).map {
                 SpeakerTimeRange(
                     startMs = (it.start * 1000f).toLong(),
                     endMs = (it.end * 1000f).toLong(),
                     speakerId = "speaker_${it.speaker}"
                 )
-            })
+            }))
         } finally {
             diarizer.release()
         }
@@ -104,6 +111,30 @@ class LocalSpeakerDiarizationEngine(
 
     private companion object {
         const val SAMPLE_RATE = 16_000
+        const val CLUSTERING_THRESHOLD = 0.90f
         const val MERGE_GAP_MS = 300L
+    }
+}
+
+/**
+ * Clustering labels are anonymous and their numeric values have no user-facing
+ * meaning. Rename them in chronological first-appearance order so every
+ * recording always starts at speaker_0 and never contains skipped numbers.
+ */
+object SpeakerLabelNormalizer {
+    fun mappingByFirstAppearance(speakerIds: Iterable<String>): Map<String, String> {
+        val labels = linkedMapOf<String, String>()
+        speakerIds.forEach { speakerId ->
+            labels.getOrPut(speakerId) { "speaker_${labels.size}" }
+        }
+        return labels
+    }
+
+    fun byFirstAppearance(ranges: List<SpeakerTimeRange>): List<SpeakerTimeRange> {
+        val sorted = ranges.sortedBy(SpeakerTimeRange::startMs)
+        val labels = mappingByFirstAppearance(sorted.map(SpeakerTimeRange::speakerId))
+        return sorted.map { range ->
+            range.copy(speakerId = labels.getValue(range.speakerId))
+        }
     }
 }

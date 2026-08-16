@@ -6,6 +6,7 @@ import com.suiji.app.model.RecordingItem
 import com.suiji.app.model.RecordingLanguage
 import com.suiji.app.model.TimelineEvent
 import com.suiji.app.model.TimelineEventType
+import com.suiji.app.speaker.SpeakerLabelNormalizer
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -143,5 +144,28 @@ class FileRecordingRepository(context: Context) : RecordingRepository {
         },
         isOngoing = optBoolean("isOngoing"),
         transcriptionError = optString("transcriptionError").takeIf { it.isNotBlank() }
-    )
+    ).withChronologicalSpeakerLabels()
+
+    /**
+     * Migrates recordings created by older builds whose raw clustering IDs
+     * could start at any number or contain gaps (for example 1, 2, 4, 5).
+     */
+    private fun RecordingItem.withChronologicalSpeakerLabels(): RecordingItem {
+        val orderedTimeline = timeline.sortedBy(TimelineEvent::timestampMs)
+        val mapping = SpeakerLabelNormalizer.mappingByFirstAppearance(
+            orderedTimeline.mapNotNull(TimelineEvent::speakerId)
+        )
+        if (mapping.isEmpty() || mapping.all { (old, new) -> old == new }) return this
+
+        return copy(
+            timeline = orderedTimeline.map { event ->
+                event.copy(speakerId = event.speakerId?.let(mapping::getValue))
+            },
+            speakerNames = buildMap {
+                mapping.forEach { (oldId, newId) ->
+                    speakerNames[oldId]?.let { put(newId, it) }
+                }
+            }
+        )
+    }
 }
