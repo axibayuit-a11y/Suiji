@@ -690,7 +690,7 @@ class RecordingService : Service() {
         private const val LIVE_VOICE_HOLD_MS = 850L
         private const val LIVE_VOICE_RMS_THRESHOLD = 0.006f
         private const val MIN_LIVE_RECOGNITION_SAMPLES = ASR_SAMPLE_RATE * 2 / 5
-        private const val SPEAKER_WINDOW_MS = 1_500L
+        private const val SPEAKER_WINDOW_MS = 3_000L
         private const val SPEAKER_STEP_MS = 500L
         private const val SPEAKER_MIN_VOICED_FRAMES = 4
         private val _state = MutableStateFlow(RecordingServiceState())
