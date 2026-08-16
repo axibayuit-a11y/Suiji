@@ -69,7 +69,7 @@
     <string name="about">關於</string>
     <string name="version_label">隨記 %1$s</string>
     <string name="check_for_updates">檢查更新</string>
-    <string name="check_updates_description">透過 GitHub Release 取得新版本</string>
+    <string name="check_updates_description">透過加速來源或 GitHub Release 取得新版本</string>
     <string name="checking_for_updates">正在檢查最新版本…</string>
     <string name="app_is_up_to_date">目前已是最新版本</string>
     <string name="update_available_title">發現隨記 %1$s</string>

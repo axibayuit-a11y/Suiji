@@ -25,12 +25,7 @@ class AppUpdateManager(context: Context) {
     private val updatesDirectory = File(appContext.cacheDir, "app_updates").apply { mkdirs() }
 
     fun checkForUpdate(): Result<AppUpdateInfo?> = runCatching {
-        val connection = openConnection(LATEST_RELEASE_API, "application/vnd.github+json")
-        try {
-            require(connection.responseCode in 200..299) {
-                "GitHub returned HTTP ${connection.responseCode}"
-            }
-            val release = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+        val release = loadLatestRelease()
             val latestVersion = release.getString("tag_name").trim().removePrefix("v")
             if (!ReleaseUpdatePolicy.isNewer(latestVersion, BuildConfig.VERSION_NAME)) {
                 return@runCatching null
@@ -54,6 +49,9 @@ class AppUpdateManager(context: Context) {
             }
             val selected = ReleaseUpdatePolicy.selectAsset(Build.SUPPORTED_ABIS.toList(), candidates)
                 ?: error("This release does not contain a compatible APK")
+            require(UpdateSourcePolicy.isTrustedReleaseAsset(selected.downloadUrl)) {
+                "The release contains an untrusted APK address"
+            }
             AppUpdateInfo(
                 versionName = latestVersion,
                 releaseNotes = release.optString("body").trim(),
@@ -63,9 +61,6 @@ class AppUpdateManager(context: Context) {
                 assetBytes = selected.size,
                 sha256Digest = selected.digest
             )
-        } finally {
-            connection.disconnect()
-        }
     }
 
     fun downloadUpdate(
@@ -76,19 +71,85 @@ class AppUpdateManager(context: Context) {
             ?: error("Release asset is not an APK")
         val partialFile = File(updatesDirectory, "$safeName.part")
         val apkFile = File(updatesDirectory, safeName)
-        partialFile.delete()
         apkFile.delete()
+        require(UpdateSourcePolicy.isTrustedReleaseAsset(info.downloadUrl)) {
+            "The update APK address is not trusted"
+        }
+        if (info.assetBytes > 0L && partialFile.length() > info.assetBytes) {
+            partialFile.delete()
+        }
 
-        val connection = openConnection(info.downloadUrl, APK_MIME_TYPE)
-        try {
-            require(connection.responseCode in 200..299) {
-                "APK download returned HTTP ${connection.responseCode}"
+        val failures = mutableListOf<String>()
+        if (isComplete(partialFile, info.assetBytes)) {
+            try {
+                return@runCatching activateDownloadedApk(partialFile, apkFile, info)
+            } catch (error: Throwable) {
+                failures += "cached file: ${error.message.orEmpty()}"
+                partialFile.delete()
             }
-            val totalBytes = info.assetBytes.takeIf { it > 0L }
-                ?: connection.contentLengthLong.coerceAtLeast(0L)
-            var downloadedBytes = 0L
+        }
+
+        for (sourceUrl in UpdateSourcePolicy.releaseAssetUrls(info.downloadUrl)) {
+            try {
+                downloadFromSource(sourceUrl, partialFile, info.assetBytes, onProgress)
+                if (!isComplete(partialFile, info.assetBytes)) {
+                    error("The APK download is incomplete")
+                }
+                return@runCatching activateDownloadedApk(partialFile, apkFile, info)
+            } catch (error: Throwable) {
+                failures += "${URL(sourceUrl).host}: ${error.message.orEmpty()}"
+                if (info.assetBytes > 0L && partialFile.length() >= info.assetBytes) {
+                    partialFile.delete()
+                }
+            }
+        }
+        error("All update download sources failed: ${failures.joinToString("; ")}")
+    }
+
+    private fun loadLatestRelease(): JSONObject {
+        val failures = mutableListOf<String>()
+        for (url in UpdateSourcePolicy.latestReleaseUrls()) {
+            val connection = openConnection(url, "application/vnd.github+json")
+            try {
+                require(connection.responseCode in 200..299) {
+                    "HTTP ${connection.responseCode}"
+                }
+                return JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+            } catch (error: Throwable) {
+                failures += "${URL(url).host}: ${error.message.orEmpty()}"
+            } finally {
+                connection.disconnect()
+            }
+        }
+        error("All update check sources failed: ${failures.joinToString("; ")}")
+    }
+
+    private fun downloadFromSource(
+        sourceUrl: String,
+        partialFile: File,
+        expectedBytes: Long,
+        onProgress: (downloadedBytes: Long, totalBytes: Long) -> Unit
+    ) {
+        var existingBytes = partialFile.length().coerceAtLeast(0L)
+        val connection = openConnection(sourceUrl, APK_MIME_TYPE).apply {
+            if (existingBytes > 0L) setRequestProperty("Range", "bytes=$existingBytes-")
+        }
+        try {
+            val responseCode = connection.responseCode
+            val append = existingBytes > 0L && responseCode == HttpURLConnection.HTTP_PARTIAL
+            require(responseCode == HttpURLConnection.HTTP_OK || responseCode == HttpURLConnection.HTTP_PARTIAL) {
+                "HTTP $responseCode"
+            }
+            if (!append) {
+                existingBytes = 0L
+                partialFile.delete()
+            }
+            val totalBytes = expectedBytes.takeIf { it > 0L }
+                ?: (existingBytes + connection.contentLengthLong).coerceAtLeast(0L)
+            var downloadedBytes = existingBytes
+            onProgress(downloadedBytes, totalBytes)
             BufferedInputStream(connection.inputStream).use { input ->
-                BufferedOutputStream(FileOutputStream(partialFile)).use { output ->
+                BufferedOutputStream(FileOutputStream(partialFile, append)).use { output ->
                     val buffer = ByteArray(128 * 1024)
                     while (true) {
                         val count = input.read(buffer)
@@ -100,19 +161,23 @@ class AppUpdateManager(context: Context) {
                 }
             }
             require(downloadedBytes > 0L) { "The downloaded APK is empty" }
-            if (info.assetBytes > 0L) {
-                require(downloadedBytes == info.assetBytes) { "The APK download is incomplete" }
-            }
-            verifyDigest(partialFile, info.sha256Digest)
-            verifyApk(partialFile)
-            require(partialFile.renameTo(apkFile)) { "Could not activate the downloaded APK" }
-            apkFile
-        } catch (error: Throwable) {
-            partialFile.delete()
-            throw error
         } finally {
             connection.disconnect()
         }
+    }
+
+    private fun isComplete(file: File, expectedBytes: Long): Boolean =
+        file.isFile && file.length() > 0L && (expectedBytes <= 0L || file.length() == expectedBytes)
+
+    private fun activateDownloadedApk(
+        partialFile: File,
+        apkFile: File,
+        info: AppUpdateInfo
+    ): File {
+        verifyDigest(partialFile, info.sha256Digest)
+        verifyApk(partialFile)
+        require(partialFile.renameTo(apkFile)) { "Could not activate the downloaded APK" }
+        return apkFile
     }
 
     fun canRequestPackageInstalls(): Boolean = appContext.packageManager.canRequestPackageInstalls()
@@ -193,8 +258,8 @@ class AppUpdateManager(context: Context) {
 
     private fun openConnection(url: String, accept: String): HttpURLConnection =
         (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 15_000
-            readTimeout = 30_000
+            connectTimeout = 10_000
+            readTimeout = 60_000
             instanceFollowRedirects = true
             setRequestProperty("Accept", accept)
             setRequestProperty("User-Agent", "Suiji-Android/${BuildConfig.VERSION_NAME}")
@@ -206,8 +271,6 @@ class AppUpdateManager(context: Context) {
         .joinToString("") { "%02x".format(it) }
 
     private companion object {
-        const val LATEST_RELEASE_API =
-            "https://api.github.com/repos/axibayuit-a11y/Suiji/releases/latest"
         const val APK_MIME_TYPE = "application/vnd.android.package-archive"
     }
 }
@@ -246,4 +309,33 @@ object ReleaseUpdatePolicy {
         if (!normalized.matches(Regex("\\d+(\\.\\d+)*"))) return null
         return normalized.split('.').map(String::toInt)
     }
+}
+
+object UpdateSourcePolicy {
+    private const val LATEST_RELEASE_API =
+        "https://api.github.com/repos/axibayuit-a11y/Suiji/releases/latest"
+    private const val RELEASE_PATH_PREFIX =
+        "/axibayuit-a11y/Suiji/releases/download/"
+    private val accelerationPrefixes = listOf(
+        "https://gh-proxy.com/",
+        "https://ghproxy.net/"
+    )
+
+    fun latestReleaseUrls(): List<String> = listOf(
+        accelerationPrefixes.first() + LATEST_RELEASE_API,
+        LATEST_RELEASE_API
+    )
+
+    fun releaseAssetUrls(githubUrl: String): List<String> {
+        require(isTrustedReleaseAsset(githubUrl)) { "Untrusted GitHub release URL" }
+        return accelerationPrefixes.map { it + githubUrl } + githubUrl
+    }
+
+    fun isTrustedReleaseAsset(url: String): Boolean = runCatching {
+        val parsed = URL(url)
+        parsed.protocol.equals("https", ignoreCase = true) &&
+            parsed.host.equals("github.com", ignoreCase = true) &&
+            parsed.path.startsWith(RELEASE_PATH_PREFIX, ignoreCase = true) &&
+            parsed.path.endsWith(".apk", ignoreCase = true)
+    }.getOrDefault(false)
 }

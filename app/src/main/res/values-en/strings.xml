@@ -69,7 +69,7 @@
     <string name="about">About</string>
     <string name="version_label">Suiji %1$s</string>
     <string name="check_for_updates">Check for updates</string>
-    <string name="check_updates_description">Get new versions from GitHub Releases</string>
+    <string name="check_updates_description">Get new versions from accelerated or official GitHub sources</string>
     <string name="checking_for_updates">Checking for the latest version…</string>
     <string name="app_is_up_to_date">You already have the latest version</string>
     <string name="update_available_title">Suiji %1$s is available</string>

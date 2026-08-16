@@ -29,4 +29,35 @@ class ReleaseUpdatePolicyTest {
         )
         assertNull(ReleaseUpdatePolicy.selectAsset(listOf("x86_64"), listOf(arm64)))
     }
+
+    @Test
+    fun updateSourcesPreferAcceleratorsAndKeepGithubFallback() {
+        val githubUrl =
+            "https://github.com/axibayuit-a11y/Suiji/releases/download/v1.0.0/Suiji-v1.0.0-arm64.apk"
+        val sources = UpdateSourcePolicy.releaseAssetUrls(githubUrl)
+
+        assertEquals("https://gh-proxy.com/$githubUrl", sources[0])
+        assertEquals("https://ghproxy.net/$githubUrl", sources[1])
+        assertEquals(githubUrl, sources[2])
+        assertTrue(UpdateSourcePolicy.latestReleaseUrls().last().startsWith("https://api.github.com/"))
+    }
+
+    @Test
+    fun rejectsAssetsOutsideTheOfficialSuijiReleasePath() {
+        assertTrue(
+            UpdateSourcePolicy.isTrustedReleaseAsset(
+                "https://github.com/axibayuit-a11y/Suiji/releases/download/v1.0.0/app.apk"
+            )
+        )
+        assertFalse(
+            UpdateSourcePolicy.isTrustedReleaseAsset(
+                "https://example.com/axibayuit-a11y/Suiji/releases/download/v1.0.0/app.apk"
+            )
+        )
+        assertFalse(
+            UpdateSourcePolicy.isTrustedReleaseAsset(
+                "https://github.com/another/repo/releases/download/v1.0.0/app.apk"
+            )
+        )
+    }
 }

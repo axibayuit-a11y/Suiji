@@ -1,6 +1,6 @@
 # 随记 Android
 
-“随记”的第一阶段 Android 框架，使用 Kotlin、Jetpack Compose 和 Material 3 构建。当前 0.14.0 版本已经打通文件首页、后台录音、录音中拍照、本地转录、统一时间线、保存归档、设置、多语言和黑白主题的核心流程。
+“随记”的第一阶段 Android 框架，使用 Kotlin、Jetpack Compose 和 Material 3 构建。当前 0.15.0 版本已经打通文件首页、后台录音、录音中拍照、本地转录、统一时间线、保存归档、设置、多语言和黑白主题的核心流程。
 
 ## 当前功能
 
@@ -34,7 +34,7 @@
 - API 密钥通过 Android Keystore 的 AES-GCM 加密后保存在设备本地。
 - 界面支持简体中文、English、繁體中文。
 - 支持跟随系统、浅色和深色三种外观；配色严格使用黑白灰。
-- 设置页可检查 GitHub Release：自动选择 ARM64 或通用 APK，校验版本、包名、签名与 SHA-256 后交由 Android 系统安装器更新。
+- 设置页可检查 GitHub Release：自动尝试两个下载加速源并以 GitHub 官方源兜底，支持跨源断点续传；下载后校验版本、包名、签名与 SHA-256，再交由 Android 系统安装器更新。
 
 ## 架构
 
