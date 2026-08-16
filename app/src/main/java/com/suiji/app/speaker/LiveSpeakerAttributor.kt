@@ -2,8 +2,8 @@ package com.suiji.app.speaker
 
 import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractor
 import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig
+import com.k2fsa.sherpa.onnx.SpeakerEmbeddingManager
 import com.suiji.app.model.SpeakerDiarizationModelId
-import kotlin.math.sqrt
 
 sealed interface SpeakerTrackingResult {
     val currentSpeakerId: String
@@ -43,11 +43,6 @@ class DelayedSpeakerConfirmation(
 
     val confirmedSpeakerId: String
         get() = currentSpeakerId
-
-    fun keepCurrent(): SpeakerTrackingResult.Stable {
-        clearCandidate()
-        return SpeakerTrackingResult.Stable(currentSpeakerId)
-    }
 
     fun observe(proposedSpeakerId: String, startMs: Long, endMs: Long): SpeakerTrackingResult {
         if (proposedSpeakerId == currentSpeakerId) {
@@ -94,14 +89,11 @@ class LiveSpeakerAttributor(
     modelManager: SpeakerDiarizationModelManager,
     modelId: SpeakerDiarizationModelId
 ) : AutoCloseable {
-    private data class Profile(var centroid: FloatArray, var observations: Int)
-
-    private val profiles = linkedMapOf<String, Profile>()
     private val extractor: SpeakerEmbeddingExtractor
-    private val confirmation = DelayedSpeakerConfirmation()
+    private val manager: SpeakerEmbeddingManager
+    private val confirmation = DelayedSpeakerConfirmation(requiredObservations = 2)
     private var pendingSpeakerId: String? = null
-    private var pendingCentroid: FloatArray? = null
-    private var pendingObservations = 0
+    private val pendingEmbeddings = mutableListOf<FloatArray>()
 
     init {
         val descriptor = modelManager.descriptor(modelId)
@@ -117,39 +109,27 @@ class LiveSpeakerAttributor(
                 provider = "cpu"
             )
         )
+        manager = SpeakerEmbeddingManager(extractor.dim())
     }
 
     fun observe(samples: FloatArray, startMs: Long, endMs: Long): SpeakerTrackingResult {
         val embedding = extract(samples) ?: return SpeakerTrackingResult.Stable(currentSpeakerId())
-        if (profiles.isEmpty()) {
-            profiles[INITIAL_SPEAKER_ID] = Profile(embedding, 1)
+        if (manager.numSpeakers() == 0) {
+            check(manager.add(INITIAL_SPEAKER_ID, embedding)) {
+                "Could not register the first speaker"
+            }
             return SpeakerTrackingResult.Stable(INITIAL_SPEAKER_ID)
         }
 
-        val currentId = currentSpeakerId()
-        val currentScore = profiles[currentId]?.let { cosine(it.centroid, embedding) } ?: -1f
-        val otherMatch = profiles
-            .filterKeys { it != currentId }
-            .maxByOrNull { cosine(it.value.centroid, embedding) }
-        val otherScore = otherMatch?.let { cosine(it.value.centroid, embedding) } ?: -1f
-
-        val proposedId = when {
-            currentScore >= KEEP_CURRENT_THRESHOLD -> currentId
-            otherMatch != null &&
-                otherScore >= MATCH_EXISTING_THRESHOLD &&
-                otherScore - currentScore >= CHANGE_MARGIN -> otherMatch.key
-            currentScore < NEW_SPEAKER_THRESHOLD -> "speaker_${profiles.size}"
-            else -> currentId
-        }
+        // This is the same registration/search pattern used by the official
+        // sherpa-onnx dynamic speaker-identification example: search all enrolled
+        // speakers first, and only allocate the next consecutive ID on no match.
+        val matchedSpeaker = manager.search(embedding, SPEAKER_MATCH_THRESHOLD)
+        val proposedId = matchedSpeaker.ifBlank { "speaker_${manager.numSpeakers()}" }
 
         val decision = confirmation.observe(proposedId, startMs, endMs)
         when (decision) {
-            is SpeakerTrackingResult.Stable -> {
-                clearPending()
-                if (currentScore >= KEEP_CURRENT_THRESHOLD) {
-                    profiles[decision.currentSpeakerId]?.let { update(it, embedding) }
-                }
-            }
+            is SpeakerTrackingResult.Stable -> clearPending()
 
             is SpeakerTrackingResult.Pending -> accumulatePending(
                 decision.candidateSpeakerId,
@@ -157,22 +137,16 @@ class LiveSpeakerAttributor(
             )
 
             is SpeakerTrackingResult.Confirmed -> {
-                val confirmedEmbedding = pendingCentroid ?: embedding
-                val profile = profiles[decision.currentSpeakerId]
-                if (profile == null) {
-                    profiles[decision.currentSpeakerId] = Profile(confirmedEmbedding, 1)
-                } else {
-                    update(profile, confirmedEmbedding)
+                if (!manager.contains(decision.currentSpeakerId)) {
+                    val enrollment = (pendingEmbeddings + embedding).toTypedArray()
+                    check(manager.add(decision.currentSpeakerId, enrollment)) {
+                        "Could not register ${decision.currentSpeakerId}"
+                    }
                 }
                 clearPending()
             }
         }
         return decision
-    }
-
-    fun resetPendingEvidence() {
-        confirmation.keepCurrent()
-        clearPending()
     }
 
     private fun currentSpeakerId(): String = confirmation.confirmedSpeakerId
@@ -183,60 +157,29 @@ class LiveSpeakerAttributor(
         return try {
             stream.acceptWaveform(samples, SAMPLE_RATE)
             stream.inputFinished()
-            if (!extractor.isReady(stream)) null else normalize(extractor.compute(stream))
+            if (!extractor.isReady(stream)) null else extractor.compute(stream)
         } finally {
             stream.release()
         }?.takeIf { it.isNotEmpty() }
     }
 
     private fun accumulatePending(speakerId: String, embedding: FloatArray) {
-        if (pendingSpeakerId != speakerId || pendingCentroid == null) {
+        if (pendingSpeakerId != speakerId) {
             pendingSpeakerId = speakerId
-            pendingCentroid = embedding.copyOf()
-            pendingObservations = 1
+            pendingEmbeddings.clear()
+            pendingEmbeddings += embedding
             return
         }
-        val centroid = checkNotNull(pendingCentroid)
-        val weight = pendingObservations.toFloat()
-        centroid.indices.forEach { index ->
-            centroid[index] = (centroid[index] * weight + embedding[index]) / (weight + 1f)
-        }
-        pendingCentroid = normalize(centroid)
-        pendingObservations += 1
+        pendingEmbeddings += embedding
     }
 
     private fun clearPending() {
         pendingSpeakerId = null
-        pendingCentroid = null
-        pendingObservations = 0
-    }
-
-    private fun update(profile: Profile, embedding: FloatArray) {
-        val weight = profile.observations.coerceAtMost(MAX_PROFILE_WEIGHT).toFloat()
-        profile.centroid.indices.forEach { index ->
-            profile.centroid[index] =
-                (profile.centroid[index] * weight + embedding[index]) / (weight + 1f)
-        }
-        profile.centroid = normalize(profile.centroid)
-        profile.observations += 1
-    }
-
-    private fun cosine(first: FloatArray, second: FloatArray): Float {
-        if (first.size != second.size || first.isEmpty()) return -1f
-        var dot = 0f
-        first.indices.forEach { dot += first[it] * second[it] }
-        return dot
-    }
-
-    private fun normalize(value: FloatArray): FloatArray {
-        var squared = 0.0
-        value.forEach { squared += it * it }
-        val norm = sqrt(squared).toFloat()
-        if (norm <= 1e-6f) return value
-        return FloatArray(value.size) { value[it] / norm }
+        pendingEmbeddings.clear()
     }
 
     override fun close() {
+        manager.release()
         extractor.release()
     }
 
@@ -244,10 +187,6 @@ class LiveSpeakerAttributor(
         const val SAMPLE_RATE = 16_000
         const val INITIAL_SPEAKER_ID = "speaker_0"
         const val MIN_EMBEDDING_SAMPLES = SAMPLE_RATE * 3 / 4
-        const val KEEP_CURRENT_THRESHOLD = 0.62f
-        const val MATCH_EXISTING_THRESHOLD = 0.58f
-        const val NEW_SPEAKER_THRESHOLD = 0.50f
-        const val CHANGE_MARGIN = 0.07f
-        const val MAX_PROFILE_WEIGHT = 8
+        const val SPEAKER_MATCH_THRESHOLD = 0.50f
     }
 }

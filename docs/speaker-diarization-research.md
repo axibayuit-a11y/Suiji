@@ -31,8 +31,12 @@
   和 FastClustering。
 - 已知人数时官方强烈建议传入 `num_clusters`；未知人数时使用距离阈值。
 - 官方说明：阈值越小聚类越多，越大聚类越少；未知人数示例为 `0.90`。
+- 官方动态识别示例使用 Silero VAD 过滤语音，再通过 `SpeakerEmbeddingManager.search`
+  匹配已注册人物；未命中时才用连续编号调用 `manager.add` 注册新人。随记实时链路
+  已采用该官方流程。
 - 来源：<https://github.com/k2-fsa/sherpa-onnx/blob/master/sherpa-onnx/csrc/sherpa-onnx-offline-speaker-diarization.cc>
 - 参数定义：<https://github.com/k2-fsa/sherpa-onnx/blob/master/sherpa-onnx/csrc/fast-clustering-config.h>
+- 动态识别示例：<https://github.com/k2-fsa/sherpa-onnx/blob/master/python-api-examples/speaker-identification-with-vad-dynamic.py>
 
 ### pyannote.audio
 
@@ -70,13 +74,18 @@
 
 ## 随记当前规则
 
-- 录音中：ASR 持续输出；3D-Speaker embedding 独立计算。候选变化未稳定前仍归
-  当前人物，连续证据达标后才切换并回溯调整近期文字。
+- 录音中：ASR 持续输出；独立人物队列使用 sherpa-onnx Silero VAD、3D-Speaker
+  embedding 和官方 `SpeakerEmbeddingManager` 完成注册与搜索。候选变化未稳定前
+  仍归当前人物，连续证据达标后才切换并回溯调整近期文字。
 - 保存后：Pyannote segmentation + 3D-Speaker embedding + FastClustering 对整段
   音频重新计算，以获得更稳定的最终时间轴。
 - 最终标签：不采用模型的原始簇号，严格按首次出现顺序连续重排。
 - 当前未知人数阈值：`0.90`。后续应基于真实手机录音测试集用 DER、误分裂率和
   漏分裂率校准，而不是继续凭单条样本修改。
+
+注意：FastClustering 的 `0.90` 是“距离阈值”，值越大人物越少；
+`SpeakerEmbeddingManager.search` 的 `0.50` 是“相似度最低值”，值越大匹配越严格。
+两者语义相反，不能把网上给其中一个组件的参数直接复制到另一个组件。
 
 ## 后续改进
 

@@ -32,6 +32,8 @@ import com.suiji.app.speaker.LiveConversationTimeline
 import com.suiji.app.speaker.LiveSpeakerAttributor
 import com.suiji.app.speaker.SpeakerTrackingResult
 import com.suiji.app.speaker.SpeakerDiarizationModelManager
+import com.suiji.app.speaker.SpeakerSpeechSegment
+import com.suiji.app.speaker.SpeakerSpeechSegmenter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -371,41 +373,47 @@ class RecordingService : Service() {
         val channel = Channel<AudioFrame>(Channel.UNLIMITED)
         speakerFrames = channel
         speakerJob = serviceScope.launch(Dispatchers.Default) {
-            val frames = ArrayDeque<AudioFrame>()
-            var lastAnalysisMs = 0L
             val attributor = LiveSpeakerAttributor(speakerModelManager, selectedSpeakerModelId)
+            val segmenter = SpeakerSpeechSegmenter(this@RecordingService).openSession()
             try {
                 for (frame in channel) {
-                    frames.addLast(frame)
-                    pruneFramesBefore(frames, frame.elapsedMs - SPEAKER_WINDOW_MS)
-                    if (frame.elapsedMs - lastAnalysisMs < SPEAKER_ANALYSIS_INTERVAL_MS) continue
-                    lastAnalysisMs = frame.elapsedMs
-                    if (
-                        frames.count { it.rms >= LIVE_VOICE_RMS_THRESHOLD } <
-                        SPEAKER_MIN_VOICED_FRAMES
-                    ) {
-                        attributor.resetPendingEvidence()
-                        continue
-                    }
-                    val startMs = frames.peekFirst()?.let(::audioFrameStartMs) ?: continue
-                    val samples = collectSamples(frames, startMs, frame.elapsedMs)
-                    when (val result = attributor.observe(samples, startMs, frame.elapsedMs)) {
-                        is SpeakerTrackingResult.Confirmed -> {
-                            conversation.confirmSpeakerChange(
-                                previousSpeakerId = result.previousSpeakerId,
-                                newSpeakerId = result.currentSpeakerId,
-                                boundaryMs = result.boundaryMs
-                            )
-                            publishConversationTimeline()
-                        }
-
-                        is SpeakerTrackingResult.Pending,
-                        is SpeakerTrackingResult.Stable -> Unit
+                    segmenter.accept(frame.asrSamples).forEach { segment ->
+                        applySpeakerSegment(attributor, conversation, segment)
                     }
                 }
+                segmenter.flush().forEach { segment ->
+                    applySpeakerSegment(attributor, conversation, segment)
+                }
             } finally {
+                segmenter.close()
                 attributor.close()
             }
+        }
+    }
+
+    private fun applySpeakerSegment(
+        attributor: LiveSpeakerAttributor,
+        conversation: LiveConversationTimeline,
+        segment: SpeakerSpeechSegment
+    ) {
+        when (
+            val result = attributor.observe(
+                segment.samples,
+                segment.startMs,
+                segment.endMs
+            )
+        ) {
+            is SpeakerTrackingResult.Confirmed -> {
+                conversation.confirmSpeakerChange(
+                    previousSpeakerId = result.previousSpeakerId,
+                    newSpeakerId = result.currentSpeakerId,
+                    boundaryMs = result.boundaryMs
+                )
+                publishConversationTimeline()
+            }
+
+            is SpeakerTrackingResult.Pending,
+            is SpeakerTrackingResult.Stable -> Unit
         }
     }
 
@@ -669,10 +677,6 @@ class RecordingService : Service() {
         private const val LIVE_VOICE_HOLD_MS = 850L
         private const val LIVE_VOICE_RMS_THRESHOLD = 0.006f
         private const val MIN_LIVE_RECOGNITION_SAMPLES = ASR_SAMPLE_RATE * 2 / 5
-        private const val SPEAKER_WINDOW_MS = 1_600L
-        private const val SPEAKER_ANALYSIS_INTERVAL_MS = 600L
-        private const val SPEAKER_MIN_VOICED_FRAMES = 4
-
         private val _state = MutableStateFlow(RecordingServiceState())
         val state: StateFlow<RecordingServiceState> = _state.asStateFlow()
 
