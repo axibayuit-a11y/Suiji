@@ -52,4 +52,20 @@ class LiveConversationTimelineTest {
         assertEquals("已经实时显示的文字。", visible.single().text)
         assertEquals(1_000L, visible.single().endTimestampMs)
     }
+
+    @Test
+    fun visibleLabelsRestartAndRemainContinuousForEachTimeline() {
+        val timeline = LiveConversationTimeline("native_speaker_3")
+        timeline.commit(0L, 1_000L, "第一位。")
+        timeline.confirmSpeakerChange(
+            previousSpeakerId = "native_speaker_3",
+            newSpeakerId = "native_speaker_7",
+            boundaryMs = 1_200L
+        )
+        timeline.commit(1_300L, 2_000L, "第二位。")
+
+        val visible = timeline.visibleEvents()
+
+        assertEquals(listOf("speaker_0", "speaker_1"), visible.map { it.speakerId })
+    }
 }

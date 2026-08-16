@@ -23,4 +23,28 @@ class SpeakerEmbeddingManagerNativeTest {
             manager.release()
         }
     }
+
+    @Test
+    fun aNewManagerStartsWithAnEmptyPerRecordingRegistry() {
+        SpeakerEmbeddingManager(dim = 4).also { first ->
+            try {
+                assertTrue(first.add("speaker_0", floatArrayOf(1f, 0f, 0f, 0f)))
+                assertEquals(1, first.numSpeakers())
+            } finally {
+                first.release()
+            }
+        }
+
+        val second = SpeakerEmbeddingManager(dim = 4)
+        try {
+            assertEquals(0, second.numSpeakers())
+            assertTrue(second.allSpeakerNames().isEmpty())
+            assertEquals(
+                "",
+                second.search(floatArrayOf(1f, 0f, 0f, 0f), threshold = 0.5f)
+            )
+        } finally {
+            second.release()
+        }
+    }
 }

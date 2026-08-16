@@ -511,6 +511,7 @@ class RecordingService : Service() {
             recognitionJob = null
             speakerJob?.join()
             speakerJob = null
+            liveConversation = null
             if (recordedAudio != null) {
                 val finalState = _state.value
                 val recording = buildRecordingItem(
@@ -659,6 +660,11 @@ class RecordingService : Service() {
                 )
             }
         }
+        audioFrames?.close()
+        audioFrames = null
+        speakerFrames?.close()
+        speakerFrames = null
+        liveConversation = null
         serviceJob.cancel()
         super.onDestroy()
     }

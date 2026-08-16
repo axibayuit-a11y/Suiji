@@ -107,7 +107,9 @@ class LiveSpeakerAttributor(
     private val manager: SpeakerEmbeddingManager
     private val confirmation = DelayedSpeakerConfirmation(requiredObservations = 2)
     private var pendingSpeakerId: String? = null
+    private var pendingNewSpeakerId: String? = null
     private val pendingEmbeddings = mutableListOf<FloatArray>()
+    private var nextNewSpeakerIndex = 1
 
     init {
         val descriptor = modelManager.descriptor(modelId)
@@ -139,7 +141,9 @@ class LiveSpeakerAttributor(
         // sherpa-onnx dynamic speaker-identification example: search all enrolled
         // speakers first, and only allocate the next consecutive ID on no match.
         val matchedSpeaker = manager.search(embedding, SPEAKER_MATCH_THRESHOLD)
-        val proposedId = matchedSpeaker.ifBlank { "speaker_${manager.numSpeakers()}" }
+        val proposedId = matchedSpeaker.ifBlank {
+            pendingNewSpeakerId ?: "speaker_$nextNewSpeakerIndex"
+        }
         val decision = if (matchedSpeaker.isNotBlank()) {
             confirmation.confirmExisting(
                 proposedSpeakerId = proposedId,
@@ -162,6 +166,7 @@ class LiveSpeakerAttributor(
                     check(manager.add(decision.currentSpeakerId, enrollment)) {
                         "Could not register ${decision.currentSpeakerId}"
                     }
+                    nextNewSpeakerIndex += 1
                 }
                 clearPending()
             }
@@ -184,6 +189,7 @@ class LiveSpeakerAttributor(
     }
 
     private fun accumulatePending(speakerId: String, embedding: FloatArray) {
+        pendingNewSpeakerId = speakerId
         if (pendingSpeakerId != speakerId) {
             pendingSpeakerId = speakerId
             pendingEmbeddings.clear()
@@ -195,6 +201,7 @@ class LiveSpeakerAttributor(
 
     private fun clearPending() {
         pendingSpeakerId = null
+        pendingNewSpeakerId = null
         pendingEmbeddings.clear()
     }
 

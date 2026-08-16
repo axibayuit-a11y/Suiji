@@ -116,7 +116,12 @@ class LiveConversationTimeline(initialSpeakerId: String? = null) {
                 )
             }
         }
-        return visible
+        val labels = SpeakerLabelNormalizer.mappingByFirstAppearance(
+            visible.mapNotNull(TimelineEvent::speakerId)
+        )
+        return visible.map { event ->
+            event.copy(speakerId = event.speakerId?.let(labels::getValue))
+        }
     }
 
     private fun speakerAt(timestampMs: Long): String? = speakerTurns
