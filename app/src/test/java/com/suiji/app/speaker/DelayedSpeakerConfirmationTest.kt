@@ -6,6 +6,23 @@ import org.junit.Test
 
 class DelayedSpeakerConfirmationTest {
     @Test
+    fun switchesToAnEnrolledSpeakerWithoutWaitingForAnotherWindow() {
+        val confirmation = DelayedSpeakerConfirmation(
+            requiredObservations = 3,
+            minimumEvidenceMs = 1_200L
+        )
+
+        val result = confirmation.confirmExisting("speaker_1", 1_750L)
+
+        assertTrue(result is SpeakerTrackingResult.Confirmed)
+        result as SpeakerTrackingResult.Confirmed
+        assertEquals("speaker_0", result.previousSpeakerId)
+        assertEquals("speaker_1", result.currentSpeakerId)
+        assertEquals(1_750L, result.boundaryMs)
+        assertEquals("speaker_1", confirmation.confirmedSpeakerId)
+    }
+
+    @Test
     fun keepsCurrentSpeakerUntilDifferentVoiceIsSustained() {
         val confirmation = DelayedSpeakerConfirmation(
             requiredObservations = 3,

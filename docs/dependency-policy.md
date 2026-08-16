@@ -11,9 +11,10 @@
 ## 当前采用
 
 - 本地 ASR：sherpa-onnx + SenseVoice。
-- 人声切分：sherpa-onnx + Silero VAD。
+- ASR 人声切分：sherpa-onnx + Silero VAD。
 - 实时声纹：sherpa-onnx + 3D-Speaker embedding。
 - 实时注册与搜索：sherpa-onnx `SpeakerEmbeddingManager`。
+- 实时人物调度：1.5 秒重叠窗口、0.5 秒步长；它只负责调用时机，不计算声纹。
 - 保存后最终分离：sherpa-onnx `OfflineSpeakerDiarization`，内部组合 Pyannote
   segmentation、3D-Speaker embedding 与 FastClustering。
 

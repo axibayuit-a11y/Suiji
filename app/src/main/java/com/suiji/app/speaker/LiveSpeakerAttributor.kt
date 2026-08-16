@@ -73,6 +73,19 @@ class DelayedSpeakerConfirmation(
         return SpeakerTrackingResult.Confirmed(previous, currentSpeakerId, boundary)
     }
 
+    /** Existing enrolled speakers are trusted immediately. The embedding manager
+     * has already matched them; waiting for another utterance creates a full-turn lag. */
+    fun confirmExisting(proposedSpeakerId: String, boundaryMs: Long): SpeakerTrackingResult {
+        if (proposedSpeakerId == currentSpeakerId) {
+            clearCandidate()
+            return SpeakerTrackingResult.Stable(currentSpeakerId)
+        }
+        val previous = currentSpeakerId
+        currentSpeakerId = proposedSpeakerId
+        clearCandidate()
+        return SpeakerTrackingResult.Confirmed(previous, currentSpeakerId, boundaryMs)
+    }
+
     private fun clearCandidate() {
         candidateSpeakerId = null
         candidateBoundaryMs = 0L
@@ -82,8 +95,9 @@ class DelayedSpeakerConfirmation(
 }
 
 /**
- * Independent live speaker tracker. It only consumes PCM and emits delayed
- * speaker decisions; it never calls or waits for the transcription engine.
+ * Independent live speaker tracker. It immediately accepts matches to enrolled
+ * speakers, but delays registration of a previously unseen voice. It never calls
+ * or waits for the transcription engine.
  */
 class LiveSpeakerAttributor(
     modelManager: SpeakerDiarizationModelManager,
@@ -126,8 +140,14 @@ class LiveSpeakerAttributor(
         // speakers first, and only allocate the next consecutive ID on no match.
         val matchedSpeaker = manager.search(embedding, SPEAKER_MATCH_THRESHOLD)
         val proposedId = matchedSpeaker.ifBlank { "speaker_${manager.numSpeakers()}" }
-
-        val decision = confirmation.observe(proposedId, startMs, endMs)
+        val decision = if (matchedSpeaker.isNotBlank()) {
+            confirmation.confirmExisting(
+                proposedSpeakerId = proposedId,
+                boundaryMs = startMs + (endMs - startMs).coerceAtLeast(0L) / 2L
+            )
+        } else {
+            confirmation.observe(proposedId, startMs, endMs)
+        }
         when (decision) {
             is SpeakerTrackingResult.Stable -> clearPending()
 

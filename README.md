@@ -1,6 +1,6 @@
 # 随记 Android
 
-“随记”的第一阶段 Android 框架，使用 Kotlin、Jetpack Compose 和 Material 3 构建。当前 0.11.0 版本已经打通文件首页、后台录音、录音中拍照、本地转录、统一时间线、保存归档、设置、多语言和黑白主题的核心流程。
+“随记”的第一阶段 Android 框架，使用 Kotlin、Jetpack Compose 和 Material 3 构建。当前 0.12.0 版本已经打通文件首页、后台录音、录音中拍照、本地转录、统一时间线、保存归档、设置、多语言和黑白主题的核心流程。
 
 ## 当前功能
 
@@ -14,8 +14,8 @@
 - WAV 文件头和草稿元数据每秒检查点保存，降低异常退出时丢失整段录音的风险。
 - 录音时约每秒刷新一次临时转录结果，不等待停顿、暂停或说话人模型；Silero VAD 只负责后台确认文字，不生成可见的固定时间节点。
 - 转录片段、照片和标记全部以毫秒时间戳写入同一时间线，点击详情时间可跳转播放位置。
-- 转录和说话人识别使用两条独立音频队列；实时人物链路采用 sherpa-onnx 官方推荐的 Silero VAD、3D-Speaker embedding 与 `SpeakerEmbeddingManager` 注册/搜索流程，不在应用层重写声纹相似度和聚类算法。
-- 声纹变化先作为候选，连续达到稳定条件后才回溯移动近期文字；这一层只负责界面暂定结果，不参与声纹相似度判断。
+- 转录和说话人识别使用两条独立音频队列；实时人物链路按 1.5 秒重叠窗口、每 0.5 秒调用 sherpa-onnx 的 3D-Speaker embedding 与官方 `SpeakerEmbeddingManager` 注册/搜索，不在应用层重写声纹相似度和聚类算法。
+- 已登记人物匹配成功后立即切换，不再等待下一段发言；只有未登记的新声音需要连续两个滚动窗口确认，确认后再回溯移动近期文字。
 - 录音阶段不展示人物节点时间戳，保存后才按确认的说话人节点显示起始时间；不同人物使用不同的柔和标签色。
 - 说话人分离是独立模块和独立开关，提供 Pyannote + 3D-Speaker 离线模型，并支持把说话人编号改成姓名。
 - 保存后的匿名声纹簇按首次发言顺序稳定重排为说话人 1、2、3，不显示底层随机簇号；未知人数聚类采用更保守阈值，减少短录音把同一声音误拆成多人的情况。
@@ -59,8 +59,7 @@ SuijiViewModel（UI 状态、归档与转录调度）
 ├── SenseVoiceLocalTranscriptionEngine（离线文件与连续动态转录）
 ├── speaker/SpeakerDiarizationModelManager（独立模型目录与下载）
 ├── speaker/LocalSpeakerDiarizationEngine（只输出谁在何时说话）
-├── speaker/SpeakerSpeechSegmenter（sherpa-onnx Silero VAD 人声切分）
-├── speaker/LiveSpeakerAttributor（官方 SpeakerEmbeddingManager 注册/搜索与结果防抖）
+├── speaker/LiveSpeakerAttributor（重叠窗口、官方 SpeakerEmbeddingManager 注册/搜索与新人确认）
 ├── speaker/LiveConversationTimeline（按确认人物合并节点并回溯移动文字）
 ├── speaker/SpeakerAttribution（组合转录时间段与说话人结果）
 └── update/AppUpdateManager（Release 检查、APK 下载校验与系统安装）
