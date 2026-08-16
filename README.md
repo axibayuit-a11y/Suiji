@@ -1,6 +1,6 @@
 # 随记 Android
 
-“随记”的第一阶段 Android 框架，使用 Kotlin、Jetpack Compose 和 Material 3 构建。当前 0.8.0 版本已经打通文件首页、后台录音、录音中拍照、本地转录、统一时间线、保存归档、设置、多语言和黑白主题的核心流程。
+“随记”的第一阶段 Android 框架，使用 Kotlin、Jetpack Compose 和 Material 3 构建。当前 0.9.0 版本已经打通文件首页、后台录音、录音中拍照、本地转录、统一时间线、保存归档、设置、多语言和黑白主题的核心流程。
 
 ## 当前功能
 
@@ -12,9 +12,10 @@
 - 安装并选择 SenseVoice 本地模型后，录音期间会按语音片段持续刷新“AI 识音”文字。
 - 录音由 microphone 前台服务持有；按返回键或回到桌面不会停止，通知栏可暂停或停止并保存。
 - WAV 文件头和草稿元数据每秒检查点保存，降低异常退出时丢失整段录音的风险。
-- 转录时间戳由 Silero VAD 检测到的自然停顿生成，不再按固定秒数切分。
+- 录音时约每秒刷新一次临时转录结果，不等待停顿、暂停或说话人模型；Silero VAD 只负责后台确认文字，不生成可见的固定时间节点。
 - 转录片段、照片和标记全部以毫秒时间戳写入同一时间线，点击详情时间可跳转播放位置。
-- 开启说话人模块后，每个自然语音段在写入时间线前即完成声纹归类，不等到录音结束才显示人物。
+- 转录和说话人识别使用两条独立音频队列；声纹变化先作为候选，连续达到置信条件后才回溯移动近期文字到已有或新说话人。
+- 录音阶段不展示人物节点时间戳，保存后才按确认的说话人节点显示起始时间；不同人物使用不同的柔和标签色。
 - 说话人分离是独立模块和独立开关，提供 Pyannote + 3D-Speaker 离线模型，并支持把说话人编号改成姓名。
 - 录音语言可选择中文、English、粤语（香港）。
 - 录音期间调用系统相机，照片与当前录音一起归档。
@@ -52,11 +53,12 @@ SuijiViewModel（UI 状态、归档与转录调度）
 ├── FileRecordingRepository（JSON 元数据与本地文件）
 ├── AppPreferences / SecureValueStore（设置与加密凭据）
 ├── LocalModelManager（仅管理语音转录模型）
-├── NaturalSpeechSegmenter（神经 VAD 自然停顿分段）
-├── SenseVoiceLocalTranscriptionEngine（离线文件与分段实时转录）
+├── NaturalSpeechSegmenter（神经 VAD，仅后台确认转录文字）
+├── SenseVoiceLocalTranscriptionEngine（离线文件与连续动态转录）
 ├── speaker/SpeakerDiarizationModelManager（独立模型目录与下载）
 ├── speaker/LocalSpeakerDiarizationEngine（只输出谁在何时说话）
-├── speaker/LiveSpeakerAttributor（自然语音段关闭时立即声纹聚类）
+├── speaker/LiveSpeakerAttributor（独立声纹窗口、候选累积与延迟确认）
+├── speaker/LiveConversationTimeline（按确认人物合并节点并回溯移动文字）
 ├── speaker/SpeakerAttribution（组合转录时间段与说话人结果）
 └── update/AppUpdateManager（Release 检查、APK 下载校验与系统安装）
 ```

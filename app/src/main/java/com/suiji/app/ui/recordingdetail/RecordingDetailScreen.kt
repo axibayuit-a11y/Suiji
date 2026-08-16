@@ -57,6 +57,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -392,14 +393,15 @@ private fun TimelineDetailEvent(
                             Surface(
                                 modifier = Modifier.clickable { onRenameSpeaker(speakerId) },
                                 shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.background
+                                color = speakerTagColor(speakerId)
                             ) {
                                 Text(
                                     text = speakerName?.takeIf(String::isNotBlank)
                                         ?: defaultSpeakerName(speakerId),
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                     style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Medium
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF202020)
                                 )
                             }
                         }
@@ -446,6 +448,15 @@ private fun TimelineDetailEvent(
 private fun defaultSpeakerName(speakerId: String): String {
     val index = speakerId.substringAfterLast('_').toIntOrNull()?.plus(1)
     return if (index != null) stringResource(R.string.speaker_number, index) else speakerId
+}
+
+private fun speakerTagColor(speakerId: String): Color = when (
+    speakerId.substringAfterLast('_').toIntOrNull()?.mod(4)
+) {
+    0 -> Color(0xFFFFD9DE)
+    1 -> Color(0xFFE5E0FF)
+    2 -> Color(0xFFFFE6BF)
+    else -> Color(0xFFD9EAFE)
 }
 
 private fun formatTimestamp(timestampMs: Long): String {

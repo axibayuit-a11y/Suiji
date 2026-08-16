@@ -50,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -355,62 +356,55 @@ private fun LiveTranscriptCard(
 
 @Composable
 private fun LiveTimelineEvent(event: TimelineEvent) {
-    Row(modifier = Modifier.fillMaxWidth()) {
-        Text(
-            text = formatTimelineTime(event.timestampMs),
-            modifier = Modifier.padding(top = 2.dp),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
-            when (event.type) {
-                TimelineEventType.SPEECH -> {
-                    event.speakerId?.let { speakerId ->
-                        Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.background
-                        ) {
-                            Text(
-                                text = speakerIdToLabel(speakerId),
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                        }
-                    }
-                    Text(
-                        text = event.text,
-                        modifier = Modifier.padding(top = if (event.speakerId == null) 0.dp else 6.dp),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
-
-                TimelineEventType.PHOTO -> {
-                    val bitmap = remember(event.photoPath) {
-                        event.photoPath?.let { path ->
-                            runCatching { BitmapFactory.decodeFile(path)?.asImageBitmap() }.getOrNull()
-                        }
-                    }
-                    if (bitmap != null) {
-                        Image(
-                            bitmap = bitmap,
-                            contentDescription = stringResource(R.string.timeline_photo),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(132.dp)
-                                .clip(RoundedCornerShape(14.dp)),
-                            contentScale = ContentScale.Crop
+    Column(modifier = Modifier.fillMaxWidth()) {
+        when (event.type) {
+            TimelineEventType.SPEECH -> {
+                event.speakerId?.let { speakerId ->
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = speakerTagColor(speakerId)
+                    ) {
+                        Text(
+                            text = speakerIdToLabel(speakerId),
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color(0xFF202020)
                         )
-                    } else {
-                        Text(stringResource(R.string.timeline_photo))
                     }
                 }
-
-                TimelineEventType.MARKER -> Text(
-                    text = stringResource(R.string.timeline_marker),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium
+                Text(
+                    text = event.text,
+                    modifier = Modifier.padding(top = if (event.speakerId == null) 0.dp else 6.dp),
+                    style = MaterialTheme.typography.bodyLarge
                 )
             }
+
+            TimelineEventType.PHOTO -> {
+                val bitmap = remember(event.photoPath) {
+                    event.photoPath?.let { path ->
+                        runCatching { BitmapFactory.decodeFile(path)?.asImageBitmap() }.getOrNull()
+                    }
+                }
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = stringResource(R.string.timeline_photo),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(132.dp)
+                            .clip(RoundedCornerShape(14.dp)),
+                        contentScale = ContentScale.Crop
+                    )
+                } else {
+                    Text(stringResource(R.string.timeline_photo))
+                }
+            }
+
+            TimelineEventType.MARKER -> Text(
+                text = stringResource(R.string.timeline_marker),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium
+            )
         }
     }
 }
@@ -421,9 +415,13 @@ private fun speakerIdToLabel(speakerId: String): String {
     return if (number != null) stringResource(R.string.speaker_number, number) else speakerId
 }
 
-private fun formatTimelineTime(timestampMs: Long): String {
-    val totalSeconds = timestampMs.coerceAtLeast(0L) / 1000
-    return String.format(Locale.US, "%02d:%02d", totalSeconds / 60, totalSeconds % 60)
+private fun speakerTagColor(speakerId: String): Color = when (
+    speakerId.substringAfterLast('_').toIntOrNull()?.mod(4)
+) {
+    0 -> Color(0xFFFFD9DE)
+    1 -> Color(0xFFE5E0FF)
+    2 -> Color(0xFFFFE6BF)
+    else -> Color(0xFFD9EAFE)
 }
 
 @Composable

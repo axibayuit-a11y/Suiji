@@ -28,7 +28,9 @@ import com.suiji.app.transcription.LocalModelManager
 import com.suiji.app.transcription.NaturalSpeechSegment
 import com.suiji.app.transcription.NaturalSpeechSegmenter
 import com.suiji.app.transcription.SenseVoiceLocalTranscriptionEngine
+import com.suiji.app.speaker.LiveConversationTimeline
 import com.suiji.app.speaker.LiveSpeakerAttributor
+import com.suiji.app.speaker.SpeakerTrackingResult
 import com.suiji.app.speaker.SpeakerDiarizationModelManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -43,6 +45,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
+import java.util.ArrayDeque
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
@@ -67,7 +70,10 @@ class RecordingService : Service() {
     private lateinit var speakerModelManager: SpeakerDiarizationModelManager
     private var timerJob: Job? = null
     private var recognitionJob: Job? = null
+    private var speakerJob: Job? = null
     private var audioFrames: Channel<AudioFrame>? = null
+    private var speakerFrames: Channel<AudioFrame>? = null
+    private var liveConversation: LiveConversationTimeline? = null
     private var selectedModelId = LocalModelId.SENSEVOICE_GENERAL
     private var selectedSpeakerModelId = SpeakerDiarizationModelId.PYANNOTE_3D_SPEAKER
     private var speakerDiarizationEnabled = false
@@ -147,7 +153,7 @@ class RecordingService : Service() {
         }
 
         persistDraft()
-        startRecognitionIfAvailable()
+        startAudioAnalysisIfAvailable()
         timerJob = serviceScope.launch {
             var notificationTicks = 0
             while (isActive && recorder.isActive) {
@@ -175,6 +181,7 @@ class RecordingService : Service() {
             )
         }
         audioFrames?.trySend(frame)
+        speakerFrames?.trySend(frame)
     }
 
     private fun togglePause() {
@@ -227,50 +234,119 @@ class RecordingService : Service() {
         persistDraft()
     }
 
-    private fun startRecognitionIfAvailable() {
+    private fun startAudioAnalysisIfAvailable() {
+        val conversation = LiveConversationTimeline()
+        liveConversation = conversation
+        startTranscriptionIfAvailable(conversation)
+        startSpeakerTrackingIfAvailable(conversation)
+    }
+
+    private fun startTranscriptionIfAvailable(conversation: LiveConversationTimeline) {
         if (transcriptionMode != TranscriptionMode.LOCAL) return
         val descriptor = modelManager.descriptor(selectedModelId)
         if (!modelManager.isInstalled(descriptor)) return
-        val channel = Channel<AudioFrame>(Channel.BUFFERED)
+        val channel = Channel<AudioFrame>(Channel.UNLIMITED)
         audioFrames = channel
         recognitionJob = serviceScope.launch(Dispatchers.Default) {
             var recognizer: OfflineRecognizer? = null
             var segmenterSession: NaturalSpeechSegmenter.Session? = null
-            var speakerAttributor: LiveSpeakerAttributor? = null
+            val pendingFrames = ArrayDeque<AudioFrame>()
+            var committedThroughMs = 0L
+            var lastPartialRefreshMs = 0L
+            var lastVoiceMs = Long.MIN_VALUE
 
-            suspend fun transcribeSegment(segment: NaturalSpeechSegment) {
-                setRecognitionStatus(LiveTranscriptionStatus.RECOGNIZING)
-                val text = localEngine.transcribeSamples(
-                    checkNotNull(recognizer),
-                    segment.samples
-                ).trim()
-                if (text.isNotBlank()) {
-                    val speakerId = speakerAttributor?.attribute(
-                        samples = segment.samples,
-                        startMs = segment.startMs,
-                        endMs = segment.endMs
-                    )
-                    appendSpeechEvent(segment.startMs, segment.endMs, text, speakerId)
+            fun recognizeAndCommit(segment: NaturalSpeechSegment) {
+                val effectiveStartMs = maxOf(segment.startMs, committedThroughMs)
+                if (segment.endMs <= effectiveStartMs) return
+                val offset = ((effectiveStartMs - segment.startMs) * ASR_SAMPLE_RATE / 1000L)
+                    .toInt()
+                    .coerceIn(0, segment.samples.size)
+                val remaining = segment.samples.copyOfRange(offset, segment.samples.size)
+                val text = if (remaining.size >= MIN_LIVE_RECOGNITION_SAMPLES) {
+                    setRecognitionStatus(LiveTranscriptionStatus.RECOGNIZING)
+                    localEngine.transcribeSamples(checkNotNull(recognizer), remaining).trim()
+                } else {
+                    ""
                 }
+                conversation.commit(effectiveStartMs, segment.endMs, text)
+                publishConversationTimeline()
+                committedThroughMs = maxOf(committedThroughMs, segment.endMs)
+                pruneFramesThrough(pendingFrames, committedThroughMs)
                 setRecognitionStatus(LiveTranscriptionStatus.LISTENING)
             }
 
             try {
                 recognizer = localEngine.createRecognizer(descriptor, _state.value.session.language)
                 segmenterSession = speechSegmenter.openSession()
-                if (speakerDiarizationEnabled) {
-                    val speakerDescriptor = speakerModelManager.descriptor(selectedSpeakerModelId)
-                    if (speakerModelManager.isInstalled(speakerDescriptor)) {
-                        speakerAttributor = runCatching {
-                            LiveSpeakerAttributor(speakerModelManager, selectedSpeakerModelId)
-                        }.getOrNull()
-                    }
-                }
                 setRecognitionStatus(LiveTranscriptionStatus.LISTENING)
                 for (frame in channel) {
-                    segmenterSession.accept(frame.asrSamples).forEach { transcribeSegment(it) }
+                    pendingFrames.addLast(frame)
+                    if (frame.rms >= LIVE_VOICE_RMS_THRESHOLD) lastVoiceMs = frame.elapsedMs
+                    segmenterSession.accept(frame.asrSamples).forEach(::recognizeAndCommit)
+                    pruneFramesBefore(
+                        pendingFrames,
+                        frame.elapsedMs - MAX_LIVE_BUFFER_RETENTION_MS
+                    )
+
+                    val pendingStartMs = pendingFrames.peekFirst()?.let(::audioFrameStartMs)
+                        ?.coerceAtLeast(committedThroughMs)
+                    val pendingDurationMs = pendingStartMs?.let { frame.elapsedMs - it } ?: 0L
+
+                    if (
+                        lastVoiceMs != Long.MIN_VALUE &&
+                        pendingDurationMs >= SAFETY_COMMIT_AFTER_MS
+                    ) {
+                        val safetyEndMs = checkNotNull(pendingStartMs) + SAFETY_COMMIT_WINDOW_MS
+                        val samples = collectSamples(pendingFrames, pendingStartMs, safetyEndMs)
+                        if (samples.size >= MIN_LIVE_RECOGNITION_SAMPLES) {
+                            setRecognitionStatus(LiveTranscriptionStatus.RECOGNIZING)
+                            val text = localEngine.transcribeSamples(checkNotNull(recognizer), samples)
+                            conversation.commit(pendingStartMs, safetyEndMs, text)
+                            publishConversationTimeline()
+                            committedThroughMs = safetyEndMs
+                            pruneFramesThrough(pendingFrames, committedThroughMs)
+                            setRecognitionStatus(LiveTranscriptionStatus.LISTENING)
+                        }
+                    }
+
+                    val shouldRefreshPartial =
+                        lastVoiceMs != Long.MIN_VALUE &&
+                        frame.elapsedMs - lastPartialRefreshMs >= LIVE_REFRESH_INTERVAL_MS &&
+                            frame.elapsedMs - lastVoiceMs <= LIVE_VOICE_HOLD_MS
+                    if (shouldRefreshPartial) {
+                        val startMs = pendingFrames.peekFirst()?.let(::audioFrameStartMs)
+                            ?.coerceAtLeast(committedThroughMs)
+                        if (startMs != null && frame.elapsedMs - startMs >= MIN_PARTIAL_AUDIO_MS) {
+                            val windowStartMs = maxOf(
+                                startMs,
+                                frame.elapsedMs - MAX_PARTIAL_WINDOW_MS
+                            )
+                            val samples = collectSamples(
+                                pendingFrames,
+                                windowStartMs,
+                                frame.elapsedMs
+                            )
+                            if (samples.size >= MIN_LIVE_RECOGNITION_SAMPLES) {
+                                setRecognitionStatus(LiveTranscriptionStatus.RECOGNIZING)
+                                val text = localEngine.transcribeSamples(
+                                    checkNotNull(recognizer),
+                                    samples
+                                )
+                                if (text.isNotBlank()) {
+                                    conversation.updatePartial(
+                                        windowStartMs,
+                                        frame.elapsedMs,
+                                        text
+                                    )
+                                    publishConversationTimeline()
+                                }
+                                setRecognitionStatus(LiveTranscriptionStatus.LISTENING)
+                            }
+                        }
+                        lastPartialRefreshMs = frame.elapsedMs
+                    }
                 }
-                segmenterSession.flush().forEach { transcribeSegment(it) }
+                segmenterSession.flush().forEach(::recognizeAndCommit)
             } catch (error: Throwable) {
                 _state.update {
                     it.copy(
@@ -281,71 +357,122 @@ class RecordingService : Service() {
                     )
                 }
             } finally {
-                speakerAttributor?.close()
                 segmenterSession?.close()
                 recognizer?.release()
             }
         }
     }
 
-    private fun appendSpeechEvent(startMs: Long, endMs: Long, text: String, speakerId: String?) {
-        val event = TimelineEvent(
-            id = UUID.randomUUID().toString(),
-            type = TimelineEventType.SPEECH,
-            timestampMs = startMs.coerceAtLeast(0L),
-            endTimestampMs = endMs.coerceAtLeast(startMs),
-            text = text,
-            speakerId = speakerId
-        )
-        _state.update {
-            val timeline = mergeSafetyContinuation(it.session.timeline, event)
-            it.copy(
-                session = it.session.copy(
+    private fun startSpeakerTrackingIfAvailable(conversation: LiveConversationTimeline) {
+        if (!speakerDiarizationEnabled) return
+        val descriptor = speakerModelManager.descriptor(selectedSpeakerModelId)
+        if (!speakerModelManager.isInstalled(descriptor)) return
+        conversation.enableSpeakerTracking()
+        val channel = Channel<AudioFrame>(Channel.UNLIMITED)
+        speakerFrames = channel
+        speakerJob = serviceScope.launch(Dispatchers.Default) {
+            val frames = ArrayDeque<AudioFrame>()
+            var lastAnalysisMs = 0L
+            val attributor = LiveSpeakerAttributor(speakerModelManager, selectedSpeakerModelId)
+            try {
+                for (frame in channel) {
+                    frames.addLast(frame)
+                    pruneFramesBefore(frames, frame.elapsedMs - SPEAKER_WINDOW_MS)
+                    if (frame.elapsedMs - lastAnalysisMs < SPEAKER_ANALYSIS_INTERVAL_MS) continue
+                    lastAnalysisMs = frame.elapsedMs
+                    if (
+                        frames.count { it.rms >= LIVE_VOICE_RMS_THRESHOLD } <
+                        SPEAKER_MIN_VOICED_FRAMES
+                    ) {
+                        attributor.resetPendingEvidence()
+                        continue
+                    }
+                    val startMs = frames.peekFirst()?.let(::audioFrameStartMs) ?: continue
+                    val samples = collectSamples(frames, startMs, frame.elapsedMs)
+                    when (val result = attributor.observe(samples, startMs, frame.elapsedMs)) {
+                        is SpeakerTrackingResult.Confirmed -> {
+                            conversation.confirmSpeakerChange(
+                                previousSpeakerId = result.previousSpeakerId,
+                                newSpeakerId = result.currentSpeakerId,
+                                boundaryMs = result.boundaryMs
+                            )
+                            publishConversationTimeline()
+                        }
+
+                        is SpeakerTrackingResult.Pending,
+                        is SpeakerTrackingResult.Stable -> Unit
+                    }
+                }
+            } finally {
+                attributor.close()
+            }
+        }
+    }
+
+    private fun publishConversationTimeline() {
+        val speechEvents = liveConversation?.visibleEvents().orEmpty()
+        _state.update { current ->
+            val timeline = (
+                current.session.timeline.filter { it.type != TimelineEventType.SPEECH } +
+                    speechEvents
+                ).sortedBy(TimelineEvent::timestampMs)
+            current.copy(
+                session = current.session.copy(
                     timeline = timeline,
-                    liveTranscript = timeline
-                        .filter { item -> item.type == TimelineEventType.SPEECH }
-                        .joinToString("\n") { item -> item.text }
+                    liveTranscript = speechEvents.joinToString("\n", transform = TimelineEvent::text)
                 )
             )
         }
-        persistDraft()
     }
 
-    /**
-     * A neural VAD may emit a safety chunk for a very long, uninterrupted monologue.
-     * Keep that boundary internal: if the next chunk is contiguous and still belongs
-     * to the same speaker, update the existing timeline sentence instead of showing a
-     * synthetic fixed-duration timestamp to the user.
-     */
-    private fun mergeSafetyContinuation(
-        timeline: List<TimelineEvent>,
-        incoming: TimelineEvent
-    ): List<TimelineEvent> {
-        val previous = timeline
-            .filter { it.type == TimelineEventType.SPEECH }
-            .maxByOrNull(TimelineEvent::endTimestampMs)
-        val gapMs = previous?.let { incoming.timestampMs - it.endTimestampMs }
-        val sameSpeaker = previous != null && previous.speakerId == incoming.speakerId
-        val shouldMerge = previous != null &&
-            sameSpeaker &&
-            gapMs != null && gapMs in 0..SAFETY_CHUNK_MERGE_GAP_MS
+    private fun audioFrameStartMs(frame: AudioFrame): Long =
+        frame.elapsedMs - frame.asrSamples.size * 1000L / ASR_SAMPLE_RATE
 
-        if (!shouldMerge) return (timeline + incoming).sortedBy(TimelineEvent::timestampMs)
-        val merged = previous.copy(
-            endTimestampMs = maxOf(previous.endTimestampMs, incoming.endTimestampMs),
-            text = joinRecognizedText(previous.text, incoming.text)
-        )
-        return timeline.map { if (it.id == previous.id) merged else it }
-            .sortedBy(TimelineEvent::timestampMs)
+    private fun pruneFramesThrough(frames: ArrayDeque<AudioFrame>, timestampMs: Long) {
+        while (frames.peekFirst()?.elapsedMs?.let { it <= timestampMs } == true) {
+            frames.removeFirst()
+        }
     }
 
-    private fun joinRecognizedText(first: String, second: String): String {
-        if (first.isBlank()) return second.trim()
-        if (second.isBlank()) return first.trim()
-        val needsSpace = first.last().isLetterOrDigit() &&
-            second.first().isLetterOrDigit() &&
-            first.last().code < 128 && second.first().code < 128
-        return first.trimEnd() + (if (needsSpace) " " else "") + second.trimStart()
+    private fun pruneFramesBefore(frames: ArrayDeque<AudioFrame>, timestampMs: Long) {
+        while (frames.peekFirst()?.elapsedMs?.let { it < timestampMs } == true) {
+            frames.removeFirst()
+        }
+    }
+
+    private fun collectSamples(
+        frames: Iterable<AudioFrame>,
+        startMs: Long,
+        endMs: Long
+    ): FloatArray {
+        if (endMs <= startMs) return FloatArray(0)
+        val chunks = mutableListOf<FloatArray>()
+        var totalSamples = 0
+        for (frame in frames) {
+            val frameStartMs = audioFrameStartMs(frame)
+            val overlapStartMs = maxOf(startMs, frameStartMs)
+            val overlapEndMs = minOf(endMs, frame.elapsedMs)
+            if (overlapEndMs <= overlapStartMs) continue
+            val from = ((overlapStartMs - frameStartMs) * ASR_SAMPLE_RATE / 1000L)
+                .toInt()
+                .coerceIn(0, frame.asrSamples.size)
+            val to = ((overlapEndMs - frameStartMs) * ASR_SAMPLE_RATE / 1000L)
+                .toInt()
+                .coerceIn(from, frame.asrSamples.size)
+            if (to > from) {
+                frame.asrSamples.copyOfRange(from, to).also {
+                    chunks += it
+                    totalSamples += it.size
+                }
+            }
+        }
+        val result = FloatArray(totalSamples)
+        var offset = 0
+        chunks.forEach { chunk ->
+            chunk.copyInto(result, destinationOffset = offset)
+            offset += chunk.size
+        }
+        return result
     }
 
     private fun stopAndSave() {
@@ -357,8 +484,12 @@ class RecordingService : Service() {
             val recordedAudio = recorder.stop().getOrNull()
             audioFrames?.close()
             audioFrames = null
+            speakerFrames?.close()
+            speakerFrames = null
             recognitionJob?.join()
             recognitionJob = null
+            speakerJob?.join()
+            speakerJob = null
             if (recordedAudio != null) {
                 val finalState = _state.value
                 val recording = buildRecordingItem(
@@ -528,7 +659,19 @@ class RecordingService : Service() {
         private const val NOTIFICATION_CHANNEL_ID = "active_recording"
         private const val NOTIFICATION_ID = 4101
         private const val MAX_WAVEFORM_SAMPLES = 180
-        private const val SAFETY_CHUNK_MERGE_GAP_MS = 250L
+        private const val ASR_SAMPLE_RATE = 16_000
+        private const val LIVE_REFRESH_INTERVAL_MS = 900L
+        private const val MIN_PARTIAL_AUDIO_MS = 450L
+        private const val MAX_PARTIAL_WINDOW_MS = 10_000L
+        private const val MAX_LIVE_BUFFER_RETENTION_MS = 20_000L
+        private const val SAFETY_COMMIT_AFTER_MS = 10_000L
+        private const val SAFETY_COMMIT_WINDOW_MS = 8_000L
+        private const val LIVE_VOICE_HOLD_MS = 850L
+        private const val LIVE_VOICE_RMS_THRESHOLD = 0.006f
+        private const val MIN_LIVE_RECOGNITION_SAMPLES = ASR_SAMPLE_RATE * 2 / 5
+        private const val SPEAKER_WINDOW_MS = 1_600L
+        private const val SPEAKER_ANALYSIS_INTERVAL_MS = 600L
+        private const val SPEAKER_MIN_VOICED_FRAMES = 4
 
         private val _state = MutableStateFlow(RecordingServiceState())
         val state: StateFlow<RecordingServiceState> = _state.asStateFlow()
