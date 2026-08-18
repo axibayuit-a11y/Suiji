@@ -81,11 +81,18 @@ SuijiViewModel（UI 状态、归档与转录调度）
 ## 提交与发布
 
 完成一个版本后统一运行发布脚本；它会执行真实 LS-EEND 模型测试、JVM 测试、Lint、
-APK 构建、Git 提交与推送，并创建包含 arm64 APK、通用 APK和说话人模型的 Latest
-GitHub Release：
+APK 构建、Git 提交与推送，并创建包含 arm64 APK 和通用 APK 的 Latest GitHub
+Release：
 
 ```powershell
 python deploy.py "本版本更新说明" --release
+```
+
+LS-EEND 权重使用固定的模型附件地址，普通版本不会重复上传。只有新增或升级模型时
+才显式执行：
+
+```powershell
+python deploy.py "模型更新说明" --release --publish-model
 ```
 
 同一版本标签已经指向其他提交时脚本会拒绝覆盖，必须先提升 `versionName` 和

@@ -5,6 +5,7 @@
 用法：
   python deploy.py "提交说明"
   python deploy.py "0.5.1 更新说明" --release
+  python deploy.py "新增或升级说话人模型" --release --publish-model
   python deploy.py "只重新发布安装包" --release --skip-build
 
 安全约定：
@@ -264,13 +265,18 @@ def commit_and_push(message: str, env: dict[str, str]) -> None:
     run(["git", "push", "origin", "main"], env=env)
 
 
-def publish_release(message: str, env: dict[str, str]) -> None:
+def publish_release(
+    message: str,
+    env: dict[str, str],
+    *,
+    publish_model: bool,
+) -> None:
     version = version_name()
     tag = f"v{version}"
     for output in (ARM64_OUTPUT, UNIVERSAL_OUTPUT):
         if not output.is_file():
             raise RuntimeError(f"找不到 APK: {output}")
-    if not LS_EEND_MODEL.is_file():
+    if publish_model and not LS_EEND_MODEL.is_file():
         raise RuntimeError(f"找不到 LS-EEND 模型: {LS_EEND_MODEL}")
 
     head = run(["git", "rev-parse", "HEAD"], env=env, capture=True).stdout.strip()
@@ -293,7 +299,9 @@ def publish_release(message: str, env: dict[str, str]) -> None:
         universal_asset = temp_root / f"Suiji-v{version}-universal.apk"
         shutil.copy2(ARM64_OUTPUT, arm64_asset)
         shutil.copy2(UNIVERSAL_OUTPUT, universal_asset)
-        assets = [str(arm64_asset), str(universal_asset), str(LS_EEND_MODEL)]
+        assets = [str(arm64_asset), str(universal_asset)]
+        if publish_model:
+            assets.append(str(LS_EEND_MODEL))
 
         exists = run(
             ["gh", "release", "view", tag],
@@ -343,6 +351,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="提交随记源码并发布 APK")
     parser.add_argument("message", help="Git 提交说明，同时作为 Release 更新说明")
     parser.add_argument("--release", action="store_true", help="创建或更新当前版本 Release")
+    parser.add_argument(
+        "--publish-model",
+        action="store_true",
+        help="同时上传 LS-EEND 权重；仅在新增或升级模型时使用",
+    )
     parser.add_argument("--skip-build", action="store_true", help="跳过测试和 APK 构建")
     return parser.parse_args()
 
@@ -356,8 +369,14 @@ def main() -> int:
         if not args.skip_build:
             build(env)
         commit_and_push(args.message.strip(), env)
+        if args.publish_model and not args.release:
+            raise RuntimeError("--publish-model 必须与 --release 一起使用")
         if args.release:
-            publish_release(args.message.strip(), env)
+            publish_release(
+                args.message.strip(),
+                env,
+                publish_model=args.publish_model,
+            )
         print("随记提交与发布流程完成。")
         return 0
     except (RuntimeError, OSError) as error:
