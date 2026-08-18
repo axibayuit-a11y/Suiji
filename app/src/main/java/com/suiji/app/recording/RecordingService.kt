@@ -17,6 +17,7 @@ import com.suiji.app.R
 import com.suiji.app.data.FileRecordingRepository
 import com.suiji.app.model.LiveTranscriptionStatus
 import com.suiji.app.model.LocalModelId
+import com.suiji.app.model.LsEendModelId
 import com.suiji.app.model.RecordingItem
 import com.suiji.app.model.RecordingLanguage
 import com.suiji.app.model.RecordingSessionState
@@ -28,6 +29,7 @@ import com.suiji.app.transcription.NaturalSpeechSegment
 import com.suiji.app.transcription.NaturalSpeechSegmenter
 import com.suiji.app.transcription.SenseVoiceLocalTranscriptionEngine
 import com.suiji.app.speaker.LiveConversationTimeline
+import com.suiji.app.speaker.LsEendModelManager
 import com.suiji.app.speaker.RealtimeSpeakerDiarizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +66,7 @@ class RecordingService : Service() {
     private lateinit var modelManager: LocalModelManager
     private lateinit var localEngine: SenseVoiceLocalTranscriptionEngine
     private lateinit var speechSegmenter: NaturalSpeechSegmenter
+    private lateinit var speakerModelManager: LsEendModelManager
     private var timerJob: Job? = null
     private var recognitionJob: Job? = null
     private var speakerJob: Job? = null
@@ -71,6 +74,7 @@ class RecordingService : Service() {
     private var speakerFrames: Channel<AudioFrame>? = null
     private var liveConversation: LiveConversationTimeline? = null
     private var selectedModelId = LocalModelId.SENSEVOICE_GENERAL
+    private var selectedSpeakerModelId = LsEendModelId.GENERIC_1_8
     private var speakerDiarizationEnabled = false
     private var transcriptionMode = TranscriptionMode.OFF
 
@@ -81,6 +85,7 @@ class RecordingService : Service() {
         modelManager = LocalModelManager(this)
         localEngine = SenseVoiceLocalTranscriptionEngine(modelManager, this)
         speechSegmenter = NaturalSpeechSegmenter(this)
+        speakerModelManager = LsEendModelManager(this)
         createNotificationChannel()
     }
 
@@ -115,6 +120,10 @@ class RecordingService : Service() {
         speakerDiarizationEnabled = intent.getBooleanExtra(
             EXTRA_SPEAKER_DIARIZATION_ENABLED,
             false
+        )
+        selectedSpeakerModelId = enumValueOrDefault(
+            intent.getStringExtra(EXTRA_SPEAKER_MODEL_ID),
+            LsEendModelId.GENERIC_1_8
         )
         val createdAt = System.currentTimeMillis()
         val initialSession = RecordingSessionState(
@@ -355,13 +364,21 @@ class RecordingService : Service() {
 
     private fun startSpeakerTrackingIfAvailable(conversation: LiveConversationTimeline) {
         if (!speakerDiarizationEnabled) return
+        val installedModel = runCatching {
+            speakerModelManager.requireInstalled(selectedSpeakerModelId)
+        }.getOrElse { error ->
+            _state.update {
+                it.copy(session = it.session.copy(errorMessage = error.message))
+            }
+            return
+        }
         conversation.enableSpeakerTracking()
         val channel = Channel<AudioFrame>(Channel.UNLIMITED)
         speakerFrames = channel
         speakerJob = serviceScope.launch(Dispatchers.Default) {
             var diarizer: RealtimeSpeakerDiarizer? = null
             try {
-                diarizer = RealtimeSpeakerDiarizer(this@RecordingService)
+                diarizer = RealtimeSpeakerDiarizer(installedModel)
                 for (frame in channel) {
                     val activity = diarizer.accept(frame.speakerSamples)
                     if (activity.isEmpty()) continue
@@ -628,6 +645,7 @@ class RecordingService : Service() {
         private const val EXTRA_TRANSCRIPTION_MODE = "transcription_mode"
         private const val EXTRA_MODEL_ID = "local_model_id"
         private const val EXTRA_SPEAKER_DIARIZATION_ENABLED = "speaker_diarization_enabled"
+        private const val EXTRA_SPEAKER_MODEL_ID = "speaker_model_id"
         private const val EXTRA_PHOTO_PATH = "photo_path"
         const val EXTRA_OPEN_RECORDER = "open_recorder"
         private const val NOTIFICATION_CHANNEL_ID = "active_recording"
@@ -652,7 +670,8 @@ class RecordingService : Service() {
             language: RecordingLanguage,
             transcriptionMode: TranscriptionMode,
             modelId: LocalModelId,
-            speakerDiarizationEnabled: Boolean
+            speakerDiarizationEnabled: Boolean,
+            speakerModelId: LsEendModelId
         ) {
             ContextCompat.startForegroundService(
                 context,
@@ -663,6 +682,7 @@ class RecordingService : Service() {
                     putExtra(EXTRA_TRANSCRIPTION_MODE, transcriptionMode.name)
                     putExtra(EXTRA_MODEL_ID, modelId.name)
                     putExtra(EXTRA_SPEAKER_DIARIZATION_ENABLED, speakerDiarizationEnabled)
+                    putExtra(EXTRA_SPEAKER_MODEL_ID, speakerModelId.name)
                 }
             )
         }

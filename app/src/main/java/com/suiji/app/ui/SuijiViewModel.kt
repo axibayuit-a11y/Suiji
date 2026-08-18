@@ -11,8 +11,10 @@ import com.suiji.app.model.AiServiceConfig
 import com.suiji.app.model.AppUpdateState
 import com.suiji.app.model.AppUpdateStatus
 import com.suiji.app.model.LocalModelId
-import com.suiji.app.model.LocalModelOperation
+import com.suiji.app.model.ModelOperation
 import com.suiji.app.model.LocalModelState
+import com.suiji.app.model.LsEendModelId
+import com.suiji.app.model.LsEendModelState
 import com.suiji.app.model.LiveTranscriptionStatus
 import com.suiji.app.model.MainTab
 import com.suiji.app.model.RecordingCategory
@@ -29,6 +31,7 @@ import com.suiji.app.model.TimelineEvent
 import com.suiji.app.model.TimelineEventType
 import com.suiji.app.model.UiLanguage
 import com.suiji.app.recording.RecordingService
+import com.suiji.app.speaker.LsEendModelManager
 import com.suiji.app.transcription.LocalModelManager
 import com.suiji.app.transcription.SenseVoiceLocalTranscriptionEngine
 import com.suiji.app.update.AppUpdateManager
@@ -46,9 +49,11 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
     private val preferences = AppPreferences(application)
     private val appContext = application.applicationContext
     private val localModelManager = LocalModelManager(application)
+    private val speakerModelManager = LsEendModelManager(application)
     private val localTranscriptionEngine = SenseVoiceLocalTranscriptionEngine(localModelManager, application)
     private val appUpdateManager = AppUpdateManager(application)
-    private val modelDownloadJobs = mutableMapOf<LocalModelId, Job>()
+    private val localModelDownloadJobs = mutableMapOf<LocalModelId, Job>()
+    private val speakerModelDownloadJobs = mutableMapOf<LsEendModelId, Job>()
     private var appUpdateJob: Job? = null
     private var activeRecordingId: String? = null
     private var handledCompletedRecordingId: String? = null
@@ -62,12 +67,20 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
             transcriptionMode = preferences.readTranscriptionMode(),
             selectedLocalModelId = preferences.readSelectedLocalModel(),
             localModels = localModelManager.currentStates(),
-            speakerDiarizationEnabled = preferences.readSpeakerDiarizationEnabled()
+            speakerDiarizationEnabled = preferences.readSpeakerDiarizationEnabled() &&
+                speakerModelManager.isInstalled(
+                    speakerModelManager.descriptor(preferences.readSelectedSpeakerModel())
+                ),
+            selectedSpeakerModelId = preferences.readSelectedSpeakerModel(),
+            speakerModels = speakerModelManager.currentStates()
         )
     )
     val uiState: StateFlow<SuijiUiState> = _uiState.asStateFlow()
 
     init {
+        if (preferences.readSpeakerDiarizationEnabled() && !_uiState.value.speakerDiarizationEnabled) {
+            preferences.writeSpeakerDiarizationEnabled(false)
+        }
         viewModelScope.launch {
             RecordingService.state.collect { runtime ->
                 when {
@@ -264,6 +277,16 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun openSpeakerModelSettings() {
+        _uiState.update { it.copy(rootScreen = RootScreen.SPEAKER_MODEL_SETTINGS) }
+    }
+
+    fun closeSpeakerModelSettings() {
+        _uiState.update {
+            it.copy(rootScreen = RootScreen.MAIN, mainTab = MainTab.SETTINGS)
+        }
+    }
+
     fun setTranscriptionMode(mode: TranscriptionMode) {
         if (mode == TranscriptionMode.LOCAL) {
             val descriptor = localModelManager.descriptor(_uiState.value.selectedLocalModelId)
@@ -282,33 +305,33 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun downloadLocalModel(id: LocalModelId) {
-        if (modelDownloadJobs[id]?.isActive == true) return
+        if (localModelDownloadJobs[id]?.isActive == true) return
         val descriptor = localModelManager.descriptor(id)
         updateLocalModelState(
             LocalModelState(
                 descriptor = descriptor,
-                operation = LocalModelOperation.DOWNLOADING,
+                operation = ModelOperation.DOWNLOADING,
                 downloadedBytes = _uiState.value.localModels
                     .firstOrNull { it.descriptor.id == id }
                     ?.downloadedBytes ?: 0L
             )
         )
-        modelDownloadJobs[id] = viewModelScope.launch {
+        localModelDownloadJobs[id] = viewModelScope.launch {
             runCatching {
                 localModelManager.downloadAndInstall(descriptor, ::updateLocalModelState)
             }
-            modelDownloadJobs.remove(id)
+            localModelDownloadJobs.remove(id)
         }
     }
 
     fun cancelLocalModelDownload(id: LocalModelId) {
-        modelDownloadJobs.remove(id)?.cancel()
+        localModelDownloadJobs.remove(id)?.cancel()
         _uiState.update { state ->
             state.copy(
                 localModels = localModelManager.currentStates().map { fresh ->
                     state.localModels.firstOrNull {
                         it.descriptor.id == fresh.descriptor.id &&
-                            it.operation == LocalModelOperation.INSTALLED
+                            it.operation == ModelOperation.INSTALLED
                     } ?: fresh
                 }
             )
@@ -316,7 +339,7 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun deleteLocalModel(id: LocalModelId) {
-        modelDownloadJobs.remove(id)?.cancel()
+        localModelDownloadJobs.remove(id)?.cancel()
         viewModelScope.launch {
             localModelManager.deleteModel(id)
             val switchOff = _uiState.value.selectedLocalModelId == id &&
@@ -332,7 +355,7 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun updateLocalModelState(modelState: LocalModelState) {
-        if (modelState.operation == LocalModelOperation.INSTALLED) {
+        if (modelState.operation == ModelOperation.INSTALLED) {
             preferences.writeSelectedLocalModel(modelState.descriptor.id)
             preferences.writeTranscriptionMode(TranscriptionMode.LOCAL)
         }
@@ -342,14 +365,14 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
                     if (it.descriptor.id == modelState.descriptor.id) modelState else it
                 },
                 selectedLocalModelId = if (
-                    modelState.operation == LocalModelOperation.INSTALLED
+                    modelState.operation == ModelOperation.INSTALLED
                 ) {
                     modelState.descriptor.id
                 } else {
                     state.selectedLocalModelId
                 },
                 transcriptionMode = if (
-                    modelState.operation == LocalModelOperation.INSTALLED
+                    modelState.operation == ModelOperation.INSTALLED
                 ) {
                     TranscriptionMode.LOCAL
                 } else {
@@ -372,8 +395,89 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun setSpeakerDiarizationEnabled(enabled: Boolean) {
+        if (enabled) {
+            val descriptor = speakerModelManager.descriptor(_uiState.value.selectedSpeakerModelId)
+            if (!speakerModelManager.isInstalled(descriptor)) {
+                openSpeakerModelSettings()
+                return
+            }
+        }
         preferences.writeSpeakerDiarizationEnabled(enabled)
         _uiState.update { it.copy(speakerDiarizationEnabled = enabled) }
+    }
+
+    fun selectSpeakerModel(id: LsEendModelId) {
+        val descriptor = speakerModelManager.descriptor(id)
+        if (!speakerModelManager.isInstalled(descriptor)) return
+        preferences.writeSelectedSpeakerModel(id)
+        _uiState.update { it.copy(selectedSpeakerModelId = id) }
+    }
+
+    fun downloadSpeakerModel(id: LsEendModelId) {
+        if (speakerModelDownloadJobs[id]?.isActive == true) return
+        val descriptor = speakerModelManager.descriptor(id)
+        updateSpeakerModelState(
+            LsEendModelState(
+                descriptor = descriptor,
+                operation = ModelOperation.DOWNLOADING,
+                downloadedBytes = _uiState.value.speakerModels
+                    .firstOrNull { it.descriptor.id == id }
+                    ?.downloadedBytes ?: 0L
+            )
+        )
+        speakerModelDownloadJobs[id] = viewModelScope.launch {
+            runCatching {
+                speakerModelManager.downloadAndInstall(descriptor, ::updateSpeakerModelState)
+            }
+            speakerModelDownloadJobs.remove(id)
+        }
+    }
+
+    fun cancelSpeakerModelDownload(id: LsEendModelId) {
+        speakerModelDownloadJobs.remove(id)?.cancel()
+        _uiState.update { state ->
+            state.copy(speakerModels = speakerModelManager.currentStates())
+        }
+    }
+
+    fun deleteSpeakerModel(id: LsEendModelId) {
+        speakerModelDownloadJobs.remove(id)?.cancel()
+        viewModelScope.launch {
+            speakerModelManager.deleteModel(id)
+            val switchOff = _uiState.value.selectedSpeakerModelId == id &&
+                _uiState.value.speakerDiarizationEnabled
+            if (switchOff) preferences.writeSpeakerDiarizationEnabled(false)
+            _uiState.update {
+                it.copy(
+                    speakerModels = speakerModelManager.currentStates(),
+                    speakerDiarizationEnabled = if (switchOff) false else it.speakerDiarizationEnabled
+                )
+            }
+        }
+    }
+
+    private fun updateSpeakerModelState(modelState: LsEendModelState) {
+        if (modelState.operation == ModelOperation.INSTALLED) {
+            preferences.writeSelectedSpeakerModel(modelState.descriptor.id)
+            preferences.writeSpeakerDiarizationEnabled(true)
+        }
+        _uiState.update { state ->
+            state.copy(
+                speakerModels = state.speakerModels.map {
+                    if (it.descriptor.id == modelState.descriptor.id) modelState else it
+                },
+                selectedSpeakerModelId = if (modelState.operation == ModelOperation.INSTALLED) {
+                    modelState.descriptor.id
+                } else {
+                    state.selectedSpeakerModelId
+                },
+                speakerDiarizationEnabled = if (modelState.operation == ModelOperation.INSTALLED) {
+                    true
+                } else {
+                    state.speakerDiarizationEnabled
+                }
+            )
+        }
     }
 
     fun toggleFavorite(recording: RecordingItem) {
@@ -484,7 +588,8 @@ class SuijiViewModel(application: Application) : AndroidViewModel(application) {
             language = state.recordingSession.language,
             transcriptionMode = state.transcriptionMode,
             modelId = state.selectedLocalModelId,
-            speakerDiarizationEnabled = state.speakerDiarizationEnabled
+            speakerDiarizationEnabled = state.speakerDiarizationEnabled,
+            speakerModelId = state.selectedSpeakerModelId
         )
         return true
     }

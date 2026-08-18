@@ -1,6 +1,6 @@
 package com.suiji.app.speaker
 
-import android.content.Context
+import com.suiji.app.model.LsEendRuntimeProfile
 import java.util.ArrayDeque
 
 data class SpeakerActivityFrame(
@@ -10,11 +10,13 @@ data class SpeakerActivityFrame(
 )
 
 /** One stateful LS-EEND session. Create once when recording starts and close when it stops. */
-class RealtimeSpeakerDiarizer(context: Context) : AutoCloseable {
+class RealtimeSpeakerDiarizer(installedModel: InstalledLsEendModel) : AutoCloseable {
     private data class TimedFeature(val startMs: Long, val values: FloatArray)
 
-    private val frontend = LsEendFeatureExtractor()
-    private val model = LsEendStreamingModel(context)
+    private val frontend = when (installedModel.descriptor.runtimeProfile) {
+        LsEendRuntimeProfile.STREAMING_1_8_V1 -> LsEendFeatureExtractor()
+    }
+    private val model = LsEendStreamingModel(installedModel)
     private val features = ArrayDeque<TimedFeature>()
     private val modelTimeline = ArrayDeque<Long>()
     private var nextFeatureStartMs = 0L
@@ -25,8 +27,8 @@ class RealtimeSpeakerDiarizer(context: Context) : AutoCloseable {
             nextFeatureStartMs += FRAME_DURATION_MS
         }
         val output = mutableListOf<SpeakerActivityFrame>()
-        while (features.size >= LsEendStreamingModel.CHUNK_SIZE) {
-            val chunk = List(LsEendStreamingModel.CHUNK_SIZE) { features.removeFirst() }
+        while (features.size >= model.chunkSize) {
+            val chunk = List(model.chunkSize) { features.removeFirst() }
             chunk.forEach { modelTimeline.addLast(it.startMs) }
             val probabilities = model.infer(chunk.map(TimedFeature::values))
             probabilities.forEach { row ->

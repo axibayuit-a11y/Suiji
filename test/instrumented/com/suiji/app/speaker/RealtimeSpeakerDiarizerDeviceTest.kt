@@ -4,6 +4,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -15,6 +16,7 @@ class RealtimeSpeakerDiarizerDeviceTest {
     fun bundledModelDetectsFourChangingTracksWithoutResettingState() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
+        val testAssets = instrumentation.context.assets
         val pcm = instrumentation.context.assets
             .open("lseend_four_speakers_40s.wav")
             .use { input -> input.readBytes() }
@@ -27,17 +29,26 @@ class RealtimeSpeakerDiarizerDeviceTest {
                 FloatArray(buffer.remaining()) { buffer.get() / 32768.0f }
             }
 
+        val descriptor = LsEendModelManager.catalog.single()
+        val modelFile = File(context.cacheDir, "device-test-${descriptor.id.name}.onnx")
+        testAssets.open("lseend-streaming-1-8spk.onnx").use { input ->
+            modelFile.outputStream().buffered().use(input::copyTo)
+        }
         val frames = mutableListOf<SpeakerActivityFrame>()
-        RealtimeSpeakerDiarizer(context).use { diarizer ->
-            var offset = 0
-            while (offset < samples.size) {
-                val end = minOf(offset + LsEendFeatureExtractor.AUDIO_STEP_SAMPLES, samples.size)
-                frames += diarizer.accept(samples.copyOfRange(offset, end))
-                offset = end
+        try {
+            RealtimeSpeakerDiarizer(InstalledLsEendModel(descriptor, modelFile)).use { diarizer ->
+                var offset = 0
+                while (offset < samples.size) {
+                    val end = minOf(offset + LsEendFeatureExtractor.AUDIO_STEP_SAMPLES, samples.size)
+                    frames += diarizer.accept(samples.copyOfRange(offset, end))
+                    offset = end
+                }
             }
+        } finally {
+            modelFile.delete()
         }
 
-        val activeFrameCounts = IntArray(LsEendStreamingModel.MAX_SPEAKERS)
+        val activeFrameCounts = IntArray(descriptor.maxSpeakers)
         val activeTracks = buildSet {
             frames.forEach { frame ->
                 frame.probabilities.forEachIndexed { index, probability ->

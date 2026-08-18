@@ -46,6 +46,7 @@ fun MainShell(
     onThemeModeSelected: (ThemeMode) -> Unit,
     onAiServiceClick: () -> Unit,
     onSpeechModelsClick: () -> Unit,
+    onSpeakerModelsClick: () -> Unit,
     onTranscriptionModeSelected: (TranscriptionMode) -> Unit,
     onSpeakerDiarizationEnabledChange: (Boolean) -> Unit,
     onCheckForUpdates: () -> Unit
@@ -79,6 +80,7 @@ fun MainShell(
                 onThemeModeSelected = onThemeModeSelected,
                 onAiServiceClick = onAiServiceClick,
                 onSpeechModelsClick = onSpeechModelsClick,
+                onSpeakerModelsClick = onSpeakerModelsClick,
                 onTranscriptionModeSelected = onTranscriptionModeSelected,
                 onSpeakerDiarizationEnabledChange = onSpeakerDiarizationEnabledChange,
                 onCheckForUpdates = onCheckForUpdates

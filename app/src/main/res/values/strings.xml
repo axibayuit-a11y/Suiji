@@ -156,7 +156,13 @@
     <string name="enable_speaker_diarization">启用说话人分离</string>
     <string name="enable_speaker_diarization_hint">录音时每 100 毫秒持续识别说话人，支持 1–8 人</string>
     <string name="speaker_diarization_model">说话人分离模型</string>
-    <string name="lseend_model_summary">LS-EEND 实时模型（1–8 人，内置）</string>
+    <string name="speaker_model_center">说话人分离模型</string>
+    <string name="speaker_model_center_hint">模型按需下载到当前设备。你可以安装多个兼容的 LS-EEND 实时模型，但每次录音只运行选中的一个。</string>
+    <string name="speaker_model_source_notice">模型来自开源 LS-EEND 项目。下载完成后会校验文件大小和 SHA-256；模型缺失或损坏时会明确报错，不会切换到旧算法。</string>
+    <string name="lseend_model_description">通用实时会议模型，最多支持 %1$d 个说话人和重叠语音</string>
+    <string name="delete_speaker_model">删除说话人模型</string>
+    <string name="delete_speaker_model_title">删除这个说话人模型？</string>
+    <string name="delete_speaker_model_body">将释放模型占用空间并关闭说话人分离。录音和已有说话人标记不会被删除。</string>
     <string name="ai_features">AI 功能</string>
     <string name="ai_service">智能总结与对话服务</string>
     <string name="ai_service_configured">已配置，仅发送转录文字</string>

@@ -3,6 +3,7 @@ package com.suiji.app.ui.settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -41,21 +42,22 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.suiji.app.R
-import com.suiji.app.model.LocalModelId
+import com.suiji.app.model.LsEendModelId
+import com.suiji.app.model.LsEendModelState
 import com.suiji.app.model.ModelOperation
-import com.suiji.app.model.LocalModelState
+import java.util.Locale
 
 @Composable
-fun LocalModelSettingsScreen(
-    models: List<LocalModelState>,
-    selectedModelId: LocalModelId,
+fun SpeakerModelSettingsScreen(
+    models: List<LsEendModelState>,
+    selectedModelId: LsEendModelId,
     onBack: () -> Unit,
-    onSelect: (LocalModelId) -> Unit,
-    onDownload: (LocalModelId) -> Unit,
-    onCancelDownload: (LocalModelId) -> Unit,
-    onDelete: (LocalModelId) -> Unit
+    onSelect: (LsEendModelId) -> Unit,
+    onDownload: (LsEendModelId) -> Unit,
+    onCancelDownload: (LsEendModelId) -> Unit,
+    onDelete: (LsEendModelId) -> Unit
 ) {
-    var pendingDelete by remember { mutableStateOf<LocalModelId?>(null) }
+    var pendingDelete by remember { mutableStateOf<LsEendModelId?>(null) }
 
     Column(
         modifier = Modifier
@@ -76,7 +78,7 @@ fun LocalModelSettingsScreen(
                 )
             }
             Text(
-                text = stringResource(R.string.local_model_center),
+                text = stringResource(R.string.speaker_model_center),
                 modifier = Modifier.padding(start = 8.dp),
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold
@@ -85,17 +87,12 @@ fun LocalModelSettingsScreen(
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                start = 24.dp,
-                top = 16.dp,
-                end = 24.dp,
-                bottom = 32.dp
-            ),
+            contentPadding = PaddingValues(24.dp, 16.dp, 24.dp, 32.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
                 Text(
-                    text = stringResource(R.string.local_model_center_hint),
+                    text = stringResource(R.string.speaker_model_center_hint),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -103,7 +100,7 @@ fun LocalModelSettingsScreen(
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
             items(models, key = { it.descriptor.id }) { model ->
-                LocalModelCard(
+                SpeakerModelCard(
                     state = model,
                     selected = selectedModelId == model.descriptor.id,
                     onSelect = { onSelect(model.descriptor.id) },
@@ -114,7 +111,7 @@ fun LocalModelSettingsScreen(
             }
             item {
                 Text(
-                    text = stringResource(R.string.local_model_source_notice),
+                    text = stringResource(R.string.speaker_model_source_notice),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -125,8 +122,8 @@ fun LocalModelSettingsScreen(
     pendingDelete?.let { modelId ->
         AlertDialog(
             onDismissRequest = { pendingDelete = null },
-            title = { Text(stringResource(R.string.delete_local_model_title)) },
-            text = { Text(stringResource(R.string.delete_local_model_body)) },
+            title = { Text(stringResource(R.string.delete_speaker_model_title)) },
+            text = { Text(stringResource(R.string.delete_speaker_model_body)) },
             confirmButton = {
                 TextButton(onClick = {
                     pendingDelete = null
@@ -145,8 +142,8 @@ fun LocalModelSettingsScreen(
 }
 
 @Composable
-private fun LocalModelCard(
-    state: LocalModelState,
+private fun SpeakerModelCard(
+    state: LsEendModelState,
     selected: Boolean,
     onSelect: () -> Unit,
     onDownload: () -> Unit,
@@ -174,11 +171,8 @@ private fun LocalModelCard(
                     )
                     Text(
                         text = stringResource(
-                            if (descriptor.id == LocalModelId.SENSEVOICE_CANTONESE) {
-                                R.string.local_model_cantonese_description
-                            } else {
-                                R.string.local_model_general_description
-                            }
+                            R.string.lseend_model_description,
+                            descriptor.maxSpeakers
                         ),
                         modifier = Modifier.padding(top = 4.dp),
                         style = MaterialTheme.typography.bodySmall,
@@ -193,7 +187,7 @@ private fun LocalModelCard(
             Text(
                 text = stringResource(
                     R.string.model_size_and_version,
-                    formatBytes(descriptor.installedBytes),
+                    formatSpeakerModelBytes(descriptor.modelBytes),
                     descriptor.version
                 ),
                 modifier = Modifier.padding(top = 12.dp),
@@ -203,14 +197,15 @@ private fun LocalModelCard(
 
             Spacer(Modifier.height(14.dp))
             when (state.operation) {
-                ModelOperation.NOT_INSTALLED -> {
-                    Button(onClick = onDownload, modifier = Modifier.fillMaxWidth()) {
-                        Icon(Icons.Outlined.Download, contentDescription = null)
-                        Text(
-                            stringResource(R.string.download_model),
-                            modifier = Modifier.padding(start = 8.dp)
-                        )
-                    }
+                ModelOperation.NOT_INSTALLED -> Button(
+                    onClick = onDownload,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Outlined.Download, contentDescription = null)
+                    Text(
+                        stringResource(R.string.download_model),
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
                 }
 
                 ModelOperation.DOWNLOADING -> {
@@ -228,8 +223,8 @@ private fun LocalModelCard(
                         Text(
                             stringResource(
                                 R.string.download_progress,
-                                formatBytes(state.downloadedBytes),
-                                formatBytes(state.totalBytes)
+                                formatSpeakerModelBytes(state.downloadedBytes),
+                                formatSpeakerModelBytes(state.totalBytes)
                             ),
                             style = MaterialTheme.typography.bodySmall
                         )
@@ -248,25 +243,23 @@ private fun LocalModelCard(
                     )
                 }
 
-                ModelOperation.INSTALLED -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            stringResource(
-                                if (selected) R.string.model_selected else R.string.model_installed
-                            ),
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Medium
+                ModelOperation.INSTALLED -> Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        stringResource(
+                            if (selected) R.string.model_selected else R.string.model_installed
+                        ),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            Icons.Outlined.Delete,
+                            contentDescription = stringResource(R.string.delete_speaker_model)
                         )
-                        IconButton(onClick = onDelete) {
-                            Icon(
-                                Icons.Outlined.Delete,
-                                contentDescription = stringResource(R.string.delete_local_model)
-                            )
-                        }
                     }
                 }
 
@@ -290,11 +283,5 @@ private fun LocalModelCard(
     }
 }
 
-private fun formatBytes(bytes: Long): String {
-    val megabytes = bytes / (1024.0 * 1024.0)
-    return if (megabytes >= 1024) {
-        String.format(java.util.Locale.US, "%.1f GB", megabytes / 1024.0)
-    } else {
-        String.format(java.util.Locale.US, "%.0f MB", megabytes)
-    }
-}
+private fun formatSpeakerModelBytes(bytes: Long): String =
+    String.format(Locale.US, "%.0f MB", bytes / (1024.0 * 1024.0))

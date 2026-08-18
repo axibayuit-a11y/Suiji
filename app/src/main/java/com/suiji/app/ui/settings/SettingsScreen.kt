@@ -41,7 +41,7 @@ import com.suiji.app.model.SuijiUiState
 import com.suiji.app.model.ThemeMode
 import com.suiji.app.model.UiLanguage
 import com.suiji.app.model.TranscriptionMode
-import com.suiji.app.model.LocalModelOperation
+import com.suiji.app.model.ModelOperation
 
 @Composable
 fun SettingsScreen(
@@ -51,6 +51,7 @@ fun SettingsScreen(
     onThemeModeSelected: (ThemeMode) -> Unit,
     onAiServiceClick: () -> Unit,
     onSpeechModelsClick: () -> Unit,
+    onSpeakerModelsClick: () -> Unit,
     onTranscriptionModeSelected: (TranscriptionMode) -> Unit,
     onSpeakerDiarizationEnabledChange: (Boolean) -> Unit,
     onCheckForUpdates: () -> Unit
@@ -125,7 +126,7 @@ fun SettingsScreen(
             InformationRow(
                 Icons.Outlined.Memory,
                 R.string.local_model,
-                if (selectedModel?.operation == LocalModelOperation.INSTALLED) {
+                if (selectedModel?.operation == ModelOperation.INSTALLED) {
                     selectedModel.descriptor.displayName
                 } else {
                     stringResource(R.string.not_downloaded)
@@ -145,11 +146,18 @@ fun SettingsScreen(
             )
         }
         item {
+            val selectedModel = uiState.speakerModels.firstOrNull {
+                it.descriptor.id == uiState.selectedSpeakerModelId
+            }
             InformationRow(
                 Icons.Outlined.Groups,
                 R.string.speaker_diarization_model,
-                stringResource(R.string.lseend_model_summary),
-                showChevron = false
+                if (selectedModel?.operation == ModelOperation.INSTALLED) {
+                    selectedModel.descriptor.displayName
+                } else {
+                    stringResource(R.string.not_downloaded)
+                },
+                onClick = onSpeakerModelsClick
             )
         }
 

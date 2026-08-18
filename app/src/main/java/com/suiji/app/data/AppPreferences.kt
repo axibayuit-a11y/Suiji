@@ -5,6 +5,7 @@ import com.suiji.app.model.ThemeMode
 import com.suiji.app.model.UiLanguage
 import com.suiji.app.model.AiServiceConfig
 import com.suiji.app.model.LocalModelId
+import com.suiji.app.model.LsEendModelId
 import com.suiji.app.model.TranscriptionMode
 
 class AppPreferences(context: Context) {
@@ -72,6 +73,15 @@ class AppPreferences(context: Context) {
         preferences.edit().putBoolean(KEY_SPEAKER_DIARIZATION_ENABLED, enabled).apply()
     }
 
+    fun readSelectedSpeakerModel(): LsEendModelId = enumValueOrDefault(
+        preferences.getString(KEY_SELECTED_SPEAKER_MODEL, null),
+        LsEendModelId.GENERIC_1_8
+    )
+
+    fun writeSelectedSpeakerModel(id: LsEendModelId) {
+        preferences.edit().putString(KEY_SELECTED_SPEAKER_MODEL, id.name).apply()
+    }
+
     private inline fun <reified T : Enum<T>> enumValueOrDefault(value: String?, fallback: T): T =
         value?.let { runCatching { enumValueOf<T>(it) }.getOrNull() } ?: fallback
 
@@ -83,6 +93,7 @@ class AppPreferences(context: Context) {
         const val KEY_AI_API_KEY = "ai_service_api_key"
         const val KEY_AI_MODEL = "ai_service_model"
         const val KEY_SPEAKER_DIARIZATION_ENABLED = "speaker_diarization_enabled"
+        const val KEY_SELECTED_SPEAKER_MODEL = "selected_speaker_model"
         const val KEY_TRANSCRIPTION_MODE = "transcription_mode"
         const val KEY_SELECTED_LOCAL_MODEL = "selected_local_model"
         const val DEFAULT_BASE_URL = "https://api.openai.com/v1"

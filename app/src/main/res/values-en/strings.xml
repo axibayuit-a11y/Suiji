@@ -156,7 +156,13 @@
     <string name="enable_speaker_diarization">Enable speaker diarization</string>
     <string name="enable_speaker_diarization_hint">Continuously identifies speakers every 100 ms while recording; supports 1–8 speakers</string>
     <string name="speaker_diarization_model">Speaker diarization model</string>
-    <string name="lseend_model_summary">LS-EEND realtime model (1–8 speakers, built in)</string>
+    <string name="speaker_model_center">Speaker diarization models</string>
+    <string name="speaker_model_center_hint">Models are downloaded to this device on demand. You can install multiple compatible realtime LS-EEND models, while each recording runs only the selected one.</string>
+    <string name="speaker_model_source_notice">Models come from the open-source LS-EEND project. File size and SHA-256 are verified after download. A missing or damaged model reports an error and never switches to an old algorithm.</string>
+    <string name="lseend_model_description">General realtime meeting model with overlap support for up to %1$d speakers</string>
+    <string name="delete_speaker_model">Delete speaker model</string>
+    <string name="delete_speaker_model_title">Delete this speaker model?</string>
+    <string name="delete_speaker_model_body">This frees the model storage and turns speaker diarization off. Recordings and existing speaker labels remain intact.</string>
     <string name="ai_features">AI features</string>
     <string name="ai_service">Smart summary and chat service</string>
     <string name="ai_service_configured">Configured; transcript text only</string>

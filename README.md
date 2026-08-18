@@ -18,7 +18,7 @@
 - 模型直接输出最多 8 条说话人活动轨，支持重叠语音；不再使用声纹窗口注册、相似度阈值或录音结束后的离线聚类。
 - 模型约需 1.1 秒完成声学前端与卷积预热，之后持续输出；延迟到达的活动帧会修正尚未稳定的近期文字归属。
 - 录音阶段不展示人物节点时间戳，保存后才按确认的说话人节点显示起始时间；不同人物使用不同的柔和标签色。
-- 说话人分离是独立开关，内置 1–8 人 LS-EEND 流式模型，并支持把匿名说话人编号改成姓名。
+- 说话人分离模型按需下载、SHA-256 校验并保存在设备本地；可以安装和选择兼容的 LS-EEND 模型，每次录音只运行所选模型。
 - 匿名活动轨按首次发言顺序稳定重排为说话人 1、2、3，不显示模型内部轨号。
 - 录音语言可选择中文、English、粤语（香港）。
 - 录音期间调用系统相机，照片与当前录音一起归档。
@@ -47,6 +47,7 @@ MainActivity
     ├── RecordingScreen（录音语言、波形、统一时间线、拍照、暂停、停止）
     ├── RecordingDetailScreen（播放、进度、照片、转录与总结入口）
     ├── LocalModelSettingsScreen（语音转录模型）
+    ├── SpeakerModelSettingsScreen（LS-EEND 模型下载、选择与删除）
     └── AiServiceSettingsScreen（总结与对话服务，只处理文字）
 
 SuijiViewModel（UI 状态、归档与转录调度）
@@ -55,6 +56,7 @@ SuijiViewModel（UI 状态、归档与转录调度）
 ├── FileRecordingRepository（JSON 元数据与本地文件）
 ├── AppPreferences / SecureValueStore（设置与加密凭据）
 ├── LocalModelManager（仅管理语音转录模型）
+├── speaker/LsEendModelManager（实时分离模型目录、断点续传与 SHA-256 校验）
 ├── NaturalSpeechSegmenter（神经 VAD，仅后台确认转录文字）
 ├── SenseVoiceLocalTranscriptionEngine（离线文件与连续动态转录）
 ├── speaker/LsEendFeatureExtractor（8 kHz 流式 Mel、累计均值与上下文拼接）
@@ -75,6 +77,19 @@ SuijiViewModel（UI 状态、归档与转录调度）
 ```
 
 构建会输出按 CPU 架构拆分的 APK 和一个通用 APK。大多数现代 Android 手机使用 `arm64-v8a`；不确定设备架构时可安装通用版。
+
+## 提交与发布
+
+完成一个版本后统一运行发布脚本；它会执行真实 LS-EEND 模型测试、JVM 测试、Lint、
+APK 构建、Git 提交与推送，并创建包含 arm64 APK、通用 APK和说话人模型的 Latest
+GitHub Release：
+
+```powershell
+python deploy.py "本版本更新说明" --release
+```
+
+同一版本标签已经指向其他提交时脚本会拒绝覆盖，必须先提升 `versionName` 和
+`versionCode`，避免 Release 与源码版本错位。
 
 ## 在电脑模拟器测试麦克风与摄像头
 

@@ -107,7 +107,8 @@ class LiveConversationTimeline {
 
     private fun speakerFor(startMs: Long, endMs: Long): String? {
         if (!speakerTrackingEnabled || endMs <= startMs) return null
-        val scores = FloatArray(LsEendStreamingModel.MAX_SPEAKERS)
+        val speakerSlots = speakerActivity.maxOfOrNull { it.probabilities.size } ?: return null
+        val scores = FloatArray(speakerSlots)
         var totalWeight = 0f
         speakerActivity.forEach { frame ->
             val overlap = minOf(endMs, frame.endMs) - maxOf(startMs, frame.startMs)

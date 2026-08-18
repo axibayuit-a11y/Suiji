@@ -39,6 +39,7 @@ import com.suiji.app.ui.recording.RecordingScreen
 import com.suiji.app.ui.recordingdetail.RecordingDetailScreen
 import com.suiji.app.ui.settings.AiServiceSettingsScreen
 import com.suiji.app.ui.settings.LocalModelSettingsScreen
+import com.suiji.app.ui.settings.SpeakerModelSettingsScreen
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -121,6 +122,7 @@ fun SuijiApp(
             onThemeModeSelected = viewModel::setThemeMode,
             onAiServiceClick = viewModel::openAiServiceSettings,
             onSpeechModelsClick = viewModel::openSpeechModelSettings,
+            onSpeakerModelsClick = viewModel::openSpeakerModelSettings,
             onTranscriptionModeSelected = viewModel::setTranscriptionMode,
             onSpeakerDiarizationEnabledChange = viewModel::setSpeakerDiarizationEnabled,
             onCheckForUpdates = viewModel::checkForUpdates
@@ -185,6 +187,19 @@ fun SuijiApp(
                 onDownload = viewModel::downloadLocalModel,
                 onCancelDownload = viewModel::cancelLocalModelDownload,
                 onDelete = viewModel::deleteLocalModel
+            )
+        }
+
+        RootScreen.SPEAKER_MODEL_SETTINGS -> {
+            BackHandler(onBack = viewModel::closeSpeakerModelSettings)
+            SpeakerModelSettingsScreen(
+                models = uiState.speakerModels,
+                selectedModelId = uiState.selectedSpeakerModelId,
+                onBack = viewModel::closeSpeakerModelSettings,
+                onSelect = viewModel::selectSpeakerModel,
+                onDownload = viewModel::downloadSpeakerModel,
+                onCancelDownload = viewModel::cancelSpeakerModelDownload,
+                onDelete = viewModel::deleteSpeakerModel
             )
         }
     }

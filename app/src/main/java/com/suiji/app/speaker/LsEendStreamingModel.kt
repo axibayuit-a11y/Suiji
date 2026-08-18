@@ -3,60 +3,64 @@ package com.suiji.app.speaker
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
-import android.content.Context
-import java.io.File
-import java.io.FileOutputStream
+import com.suiji.app.model.LsEendRuntimeProfile
 import java.nio.FloatBuffer
-import java.security.MessageDigest
 
-internal class LsEendStreamingModel(context: Context) : AutoCloseable {
+internal class LsEendStreamingModel(installed: InstalledLsEendModel) : AutoCloseable {
+    private val specification = RuntimeSpecification.forProfile(installed.descriptor.runtimeProfile)
     private val environment = OrtEnvironment.getEnvironment()
     private val session: OrtSession
 
-    private var encKv = FloatArray(4 * 1 * 4 * 64 * 64)
-    private var encScale = FloatArray(4 * 4)
-    private var encConvCache = FloatArray(4 * 1 * 256 * 15)
-    private var cnnWindow = FloatArray(1 * 256 * 18)
-    private var cnnCount = FloatArray(1)
-    private var decKv = FloatArray(2 * 10 * 4 * 64 * 64)
-    private var decScale = FloatArray(2 * 4)
+    private var encKv = zeros(specification.encKvShape)
+    private var encScale = zeros(specification.encScaleShape)
+    private var encConvCache = zeros(specification.encConvCacheShape)
+    private var cnnWindow = zeros(specification.cnnWindowShape)
+    private var cnnCount = zeros(specification.cnnCountShape)
+    private var decKv = zeros(specification.decKvShape)
+    private var decScale = zeros(specification.decScaleShape)
+
+    val chunkSize: Int
+        get() = specification.chunkSize
 
     init {
-        val modelFile = installBundledModel(context.applicationContext)
+        require(specification.maxSpeakers == installed.descriptor.maxSpeakers) {
+            "The LS-EEND model catalog does not match its runtime profile"
+        }
+        require(installed.file.isFile && installed.file.length() == installed.descriptor.modelBytes) {
+            "The selected LS-EEND model file is unavailable"
+        }
         val options = OrtSession.SessionOptions().apply {
             setIntraOpNumThreads(2)
             setInterOpNumThreads(1)
             setOptimizationLevel(OrtSession.SessionOptions.OptLevel.ALL_OPT)
         }
         session = try {
-            environment.createSession(modelFile.absolutePath, options)
+            environment.createSession(installed.file.absolutePath, options)
         } finally {
             options.close()
         }
     }
 
     fun infer(features: List<FloatArray>): List<FloatArray> {
-        require(features.size == CHUNK_SIZE)
-        val flatFeatures = FloatArray(CHUNK_SIZE * LsEendFeatureExtractor.FEATURE_DIM)
+        require(features.size == specification.chunkSize)
+        val flatFeatures = FloatArray(specification.chunkSize * specification.featureDimension)
         features.forEachIndexed { index, feature ->
-            require(feature.size == LsEendFeatureExtractor.FEATURE_DIM)
+            require(feature.size == specification.featureDimension)
             feature.copyInto(flatFeatures, index * feature.size)
         }
 
         val tensors = linkedMapOf(
             "features" to tensor(
                 flatFeatures,
-                1,
-                CHUNK_SIZE.toLong(),
-                LsEendFeatureExtractor.FEATURE_DIM.toLong()
+                longArrayOf(1, specification.chunkSize.toLong(), specification.featureDimension.toLong())
             ),
-            "enc_kv" to tensor(encKv, 4, 1, 4, 64, 64),
-            "enc_scale" to tensor(encScale, 4, 4),
-            "enc_conv_cache" to tensor(encConvCache, 4, 1, 256, 15),
-            "cnn_window" to tensor(cnnWindow, 1, 256, 18),
-            "cnn_count" to tensor(cnnCount, 1),
-            "dec_kv" to tensor(decKv, 2, 10, 4, 64, 64),
-            "dec_scale" to tensor(decScale, 2, 4)
+            "enc_kv" to tensor(encKv, specification.encKvShape),
+            "enc_scale" to tensor(encScale, specification.encScaleShape),
+            "enc_conv_cache" to tensor(encConvCache, specification.encConvCacheShape),
+            "cnn_window" to tensor(cnnWindow, specification.cnnWindowShape),
+            "cnn_count" to tensor(cnnCount, specification.cnnCountShape),
+            "dec_kv" to tensor(decKv, specification.decKvShape),
+            "dec_scale" to tensor(decScale, specification.decScaleShape)
         )
 
         try {
@@ -69,10 +73,10 @@ internal class LsEendStreamingModel(context: Context) : AutoCloseable {
                 cnnCount = floats(result, "cnn_count_out")
                 decKv = floats(result, "dec_kv_out")
                 decScale = floats(result, "dec_scale_out")
-                return List(CHUNK_SIZE) { row ->
+                return List(specification.chunkSize) { row ->
                     probabilities.copyOfRange(
-                        row * MAX_SPEAKERS,
-                        (row + 1) * MAX_SPEAKERS
+                        row * specification.maxSpeakers,
+                        (row + 1) * specification.maxSpeakers
                     )
                 }
             }
@@ -81,7 +85,7 @@ internal class LsEendStreamingModel(context: Context) : AutoCloseable {
         }
     }
 
-    private fun tensor(values: FloatArray, vararg shape: Long): OnnxTensor =
+    private fun tensor(values: FloatArray, shape: LongArray): OnnxTensor =
         OnnxTensor.createTensor(environment, FloatBuffer.wrap(values), shape)
 
     private fun floats(result: OrtSession.Result, name: String): FloatArray {
@@ -98,42 +102,38 @@ internal class LsEendStreamingModel(context: Context) : AutoCloseable {
         session.close()
     }
 
-    private fun installBundledModel(context: Context): File {
-        val directory = File(context.filesDir, "models/lseend").apply { mkdirs() }
-        val target = File(directory, MODEL_FILENAME)
-        if (target.length() == MODEL_BYTES && sha256(target) == MODEL_SHA256) return target
-
-        val staging = File(directory, "$MODEL_FILENAME.part")
-        context.assets.open("models/$MODEL_FILENAME").use { input ->
-            FileOutputStream(staging, false).use(input::copyTo)
-        }
-        require(staging.length() == MODEL_BYTES && sha256(staging) == MODEL_SHA256) {
-            "The bundled LS-EEND model failed integrity validation"
-        }
-        if (target.exists()) check(target.delete())
-        check(staging.renameTo(target)) { "Could not install the bundled LS-EEND model" }
-        return target
-    }
-
-    private fun sha256(file: File): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        file.inputStream().buffered().use { input ->
-            val buffer = ByteArray(128 * 1024)
-            while (true) {
-                val count = input.read(buffer)
-                if (count < 0) break
-                digest.update(buffer, 0, count)
+    private data class RuntimeSpecification(
+        val chunkSize: Int,
+        val featureDimension: Int,
+        val maxSpeakers: Int,
+        val encKvShape: LongArray,
+        val encScaleShape: LongArray,
+        val encConvCacheShape: LongArray,
+        val cnnWindowShape: LongArray,
+        val cnnCountShape: LongArray,
+        val decKvShape: LongArray,
+        val decScaleShape: LongArray
+    ) {
+        companion object {
+            fun forProfile(profile: LsEendRuntimeProfile): RuntimeSpecification = when (profile) {
+                LsEendRuntimeProfile.STREAMING_1_8_V1 -> RuntimeSpecification(
+                    chunkSize = 5,
+                    featureDimension = LsEendFeatureExtractor.FEATURE_DIM,
+                    maxSpeakers = 8,
+                    encKvShape = longArrayOf(4, 1, 4, 64, 64),
+                    encScaleShape = longArrayOf(4, 4),
+                    encConvCacheShape = longArrayOf(4, 1, 256, 15),
+                    cnnWindowShape = longArrayOf(1, 256, 18),
+                    cnnCountShape = longArrayOf(1),
+                    decKvShape = longArrayOf(2, 10, 4, 64, 64),
+                    decScaleShape = longArrayOf(2, 4)
+                )
             }
         }
-        return digest.digest().joinToString("") { "%02x".format(it) }
     }
 
-    companion object {
-        const val CHUNK_SIZE = 5
-        const val MAX_SPEAKERS = 8
-        private const val MODEL_FILENAME = "lseend-streaming-1-8spk.onnx"
-        private const val MODEL_BYTES = 44_947_938L
-        private const val MODEL_SHA256 =
-            "c4f104d9426518be1c6bf9f1f27b1801906e194ce9cc7f62305412da6f4f01b8"
+    private companion object {
+        fun zeros(shape: LongArray): FloatArray =
+            FloatArray(shape.fold(1L, Long::times).toInt())
     }
 }

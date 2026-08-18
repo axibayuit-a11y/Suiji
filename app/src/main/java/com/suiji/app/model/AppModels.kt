@@ -10,7 +10,8 @@ enum class RootScreen {
     RECORDER,
     RECORDING_DETAIL,
     AI_SERVICE_SETTINGS,
-    SPEECH_MODEL_SETTINGS
+    SPEECH_MODEL_SETTINGS,
+    SPEAKER_MODEL_SETTINGS
 }
 
 enum class RecordingLanguage {
@@ -50,7 +51,7 @@ enum class LocalModelId {
     SENSEVOICE_CANTONESE
 }
 
-enum class LocalModelOperation {
+enum class ModelOperation {
     NOT_INSTALLED,
     DOWNLOADING,
     VERIFYING,
@@ -70,9 +71,41 @@ data class LocalModelDescriptor(
 
 data class LocalModelState(
     val descriptor: LocalModelDescriptor,
-    val operation: LocalModelOperation,
+    val operation: ModelOperation,
     val downloadedBytes: Long = 0L,
     val totalBytes: Long = descriptor.archiveBytes,
+    val errorMessage: String? = null
+) {
+    val progress: Float
+        get() = if (totalBytes <= 0L) 0f else {
+            (downloadedBytes.toDouble() / totalBytes.toDouble()).toFloat().coerceIn(0f, 1f)
+        }
+}
+
+enum class LsEendModelId {
+    GENERIC_1_8
+}
+
+enum class LsEendRuntimeProfile {
+    STREAMING_1_8_V1
+}
+
+data class LsEendModelDescriptor(
+    val id: LsEendModelId,
+    val displayName: String,
+    val version: String,
+    val downloadUrl: String,
+    val modelBytes: Long,
+    val sha256: String,
+    val maxSpeakers: Int,
+    val runtimeProfile: LsEendRuntimeProfile
+)
+
+data class LsEendModelState(
+    val descriptor: LsEendModelDescriptor,
+    val operation: ModelOperation,
+    val downloadedBytes: Long = 0L,
+    val totalBytes: Long = descriptor.modelBytes,
     val errorMessage: String? = null
 ) {
     val progress: Float
@@ -224,5 +257,7 @@ data class SuijiUiState(
     val selectedLocalModelId: LocalModelId = LocalModelId.SENSEVOICE_GENERAL,
     val localModels: List<LocalModelState> = emptyList(),
     val speakerDiarizationEnabled: Boolean = false,
+    val selectedSpeakerModelId: LsEendModelId = LsEendModelId.GENERIC_1_8,
+    val speakerModels: List<LsEendModelState> = emptyList(),
     val appUpdate: AppUpdateState = AppUpdateState()
 )

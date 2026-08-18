@@ -4,7 +4,7 @@ import android.content.Context
 import android.os.StatFs
 import com.suiji.app.model.LocalModelDescriptor
 import com.suiji.app.model.LocalModelId
-import com.suiji.app.model.LocalModelOperation
+import com.suiji.app.model.ModelOperation
 import com.suiji.app.model.LocalModelState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -35,9 +35,9 @@ class LocalModelManager(context: Context) {
         LocalModelState(
             descriptor = descriptor,
             operation = if (installed) {
-                LocalModelOperation.INSTALLED
+                ModelOperation.INSTALLED
             } else {
-                LocalModelOperation.NOT_INSTALLED
+                ModelOperation.NOT_INSTALLED
             },
             downloadedBytes = if (installed) descriptor.archiveBytes else downloaded
         )
@@ -77,7 +77,7 @@ class LocalModelManager(context: Context) {
             onState(
                 LocalModelState(
                     descriptor,
-                    LocalModelOperation.VERIFYING,
+                    ModelOperation.VERIFYING,
                     descriptor.archiveBytes,
                     descriptor.archiveBytes
                 )
@@ -95,7 +95,7 @@ class LocalModelManager(context: Context) {
             onState(
                 LocalModelState(
                     descriptor,
-                    LocalModelOperation.INSTALLED,
+                    ModelOperation.INSTALLED,
                     descriptor.archiveBytes,
                     descriptor.archiveBytes
                 )
@@ -107,7 +107,7 @@ class LocalModelManager(context: Context) {
             onState(
                 LocalModelState(
                     descriptor,
-                    LocalModelOperation.FAILED,
+                    ModelOperation.FAILED,
                     partial.length(),
                     descriptor.archiveBytes,
                     error.message ?: "Model installation failed"
@@ -160,7 +160,7 @@ class LocalModelManager(context: Context) {
                             onState(
                                 LocalModelState(
                                     descriptor,
-                                    LocalModelOperation.DOWNLOADING,
+                                    ModelOperation.DOWNLOADING,
                                     downloaded,
                                     descriptor.archiveBytes
                                 )

@@ -12,7 +12,6 @@ captures/
 *.keystore
 *.apk
 /screenshots/
-/deploy.py
 __pycache__/
 *.py[cod]
 .env

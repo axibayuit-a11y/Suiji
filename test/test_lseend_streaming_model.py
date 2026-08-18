@@ -9,7 +9,7 @@ import soundfile as sf
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODEL = ROOT / "app/src/main/assets/models/lseend-streaming-1-8spk.onnx"
+MODEL = ROOT / "test/fixtures/lseend-streaming-1-8spk.onnx"
 FIXTURE = ROOT / "test/fixtures/lseend_four_speakers_40s.wav"
 
 
