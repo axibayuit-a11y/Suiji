@@ -292,7 +292,10 @@ private fun LiveTranscriptCard(
 
             if (session.timeline.isEmpty()) {
                 Text(
-                    text = liveTranscriptionMessage(session.liveTranscriptionStatus),
+                    text = liveTranscriptionMessage(
+                        status = session.liveTranscriptionStatus,
+                        errorMessage = session.errorMessage
+                    ),
                     modifier = Modifier
                         .padding(top = 18.dp)
                         .weight(1f),
@@ -425,13 +428,19 @@ private fun speakerTagColor(speakerId: String): Color = when (
 }
 
 @Composable
-private fun liveTranscriptionMessage(status: LiveTranscriptionStatus): String = when (status) {
+private fun liveTranscriptionMessage(
+    status: LiveTranscriptionStatus,
+    errorMessage: String?
+): String = when (status) {
     LiveTranscriptionStatus.DISABLED -> stringResource(R.string.live_disabled)
     LiveTranscriptionStatus.MODEL_REQUIRED -> stringResource(R.string.live_model_required)
     LiveTranscriptionStatus.INITIALIZING -> stringResource(R.string.live_initializing)
     LiveTranscriptionStatus.LISTENING -> stringResource(R.string.live_listening)
     LiveTranscriptionStatus.RECOGNIZING -> stringResource(R.string.live_recognizing)
-    LiveTranscriptionStatus.ERROR -> stringResource(R.string.live_error)
+    LiveTranscriptionStatus.ERROR -> listOfNotNull(
+        stringResource(R.string.live_error),
+        errorMessage?.takeIf(String::isNotBlank)
+    ).joinToString(separator = "\n")
 }
 
 @Composable

@@ -12,8 +12,8 @@ android {
         applicationId = "com.suiji.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = 17
-        versionName = "0.16.1"
+        versionCode = 18
+        versionName = "0.16.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -85,8 +85,9 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
     implementation("org.apache.commons:commons-compress:1.28.0")
-    // 1.26.0 keeps the arm64 APK about 32 MB smaller than 1.29.0 for this CPU graph.
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.26.0")
+    // The bundled sherpa JNI libraries require OrtGetApiBase@VERS_1.27.0.
+    // Keep this version synchronized with test/test_native_runtime_compatibility.py.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.27.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")

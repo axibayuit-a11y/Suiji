@@ -213,6 +213,10 @@ def version_name() -> str:
 
 def build(env: dict[str, str]) -> None:
     run(
+        [sys.executable, "test/test_native_runtime_compatibility.py"],
+        env=env,
+    )
+    run(
         [sys.executable, "test/test_lseend_streaming_model.py"],
         env=env,
     )

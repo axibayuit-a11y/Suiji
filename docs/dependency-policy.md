@@ -8,8 +8,9 @@
 - ASR 语音切分：sherpa-onnx + Silero VAD。
 - 实时说话人分离：官方 LS-EEND 权重导出的状态化流式 ONNX；当前目录提供通用
   1–8 人模型，后续可以增加使用兼容运行时配置的 LS-EEND 模型。
-- Android 推理：Microsoft ONNX Runtime Android 1.26.0，CPU 两线程。1.29.0 对本模型
-  没有必要算子收益，却使 arm64 APK 增加约 32 MB，因此暂不升级。
+- Android 推理：Microsoft ONNX Runtime Android 1.27.0。该版本必须与当前
+  sherpa-onnx JNI 的 `OrtGetApiBase@VERS_1.27.0` 原生符号严格一致；发布脚本会运行
+  静态兼容性检查，禁止仅为减小 APK 而单独降级运行库。LS-EEND 使用 CPU 两线程。
 
 ## 项目实现
 
